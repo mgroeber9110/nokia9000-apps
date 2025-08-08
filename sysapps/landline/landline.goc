@@ -1,0 +1,502 @@
+/*
+===============================================================================
+
+   Project:     Nokia 9000 Advanced PPP Settings
+   File:        landline.goc
+
+   Author:      Marcus Groeber
+
+
+===============================================================================
+*/
+
+/*
+############################################################################
+		Include Files
+############################################################################
+*/
+@include <stdapp.goh>	/* standard include file for GEOS applications */
+@include <foam.goh>	/* many Nokia UI dialog boxes contained herein */
+@include <accpnt.goh>
+#include <initfile.h>
+#include <serialdr.h>
+#include <ansi/string.h>
+
+
+/*
+############################################################################
+		Global variables and constants
+############################################################################
+*/
+
+#define LANDLINE_COM            SERIAL_COM1
+#ifdef DO_ERROR_CHECKING
+  #define LANDLINE_DRIVER       "EC Serial Driver"
+#else
+  #define LANDLINE_DRIVER       "Serial Driver"
+#endif
+
+#ifdef DO_ERROR_CHECKING
+  #define RADIO_DRIVER          "EC Virtual Serial"
+#else
+  #define RADIO_DRIVER          "Virtual Serial"
+#endif
+
+#define MAX_PHONE_NUMBER 40
+
+
+/*
+############################################################################
+		New classes
+############################################################################
+*/
+@class LandlineProcessClass, GenProcessClass;
+  @message (GEN_ITEM_GROUP_STATUS_MSG) MSG_LANDLINE_PROCESS_PORT_CHANGED;
+  @message (GEN_ITEM_GROUP_STATUS_MSG) MSG_LANDLINE_PROCESS_PORT_APPLY;
+  @message (GEN_ITEM_GROUP_STATUS_MSG) MSG_LANDLINE_PROCESS_BAUD_APPLY;
+  @message (GEN_ITEM_GROUP_APPLY_MSG) MSG_LANDLINE_PROCESS_DEBUG_APPLY;
+  @message void MSG_LANDLINE_PROCESS_EDIT_PHONE(word id = cx);
+@endc;
+
+/*
+############################################################################
+		UI Objects
+############################################################################
+*/
+/*
+------------------------------
+	Application Object
+------------------------------
+*/
+@start   AppResource;
+
+@object FoamSubApplicationClass LandlineApp = {
+    GI_comp = @LandlinePrimary, @NumberEditorDialog;
+    FSAI_launcherApp = FA_SYSTEM_APP;
+    gcnList(MANUFACTURER_ID_GEOWORKS, GAGCNLT_WINDOWS) = @LandlinePrimary;
+    GI_visMoniker = list { @LandlineTextMoniker };
+}
+
+@visMoniker LandlineTextMoniker = "Adv. PPP\rSettings";
+
+@end     AppResource;
+
+/*
+------------------------------
+	UI Objects
+------------------------------
+*/
+@start   Interface;
+
+/*
+=============================
+        Mail window
+=============================
+*/
+@object GenInteractionClass LandlinePrimary = {
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_PROPERTIES;
+    GI_comp  = @AboutBox,
+	       @CloseTrigger;
+}
+
+@chunk TCHAR AboutTitle[] = "Advanced PPP Settings";
+@object ComplexMonikerClass AboutBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @AboutTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    CMI_iconBitmap = CMB_SETTINGS_TITLE_ICON;
+    GI_comp = @ControlGroup, @Author;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+}
+
+@object GenInteractionClass ControlGroup = {
+    GI_comp = @UsePortGroup, @SerialBaudGroup, @DebugGroup, @NumberEditor;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+};
+
+@object GenInteractionClass UsePortGroup = {
+    GI_visMoniker = "Use port";
+    GI_comp = @UsePort;
+}
+
+  #define USE_PORT_RADIO  1
+  #define USE_PORT_SERIAL 2
+
+  @chunk TCHAR UsePortTitle[] = "Use Port";
+  @object ComplexMonikerClass UsePort = {
+      ComplexMoniker = GenItemGroupClass;
+      CMI_topText = @UsePortTitle;
+      CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+      GI_comp = @UsePortRadio, @UsePortSerial;
+      GIGI_selection = USE_PORT_RADIO;
+      GIGI_destination = process;
+      GIGI_applyMsg = MSG_LANDLINE_PROCESS_PORT_APPLY;
+      ATTR_GEN_ITEM_GROUP_STATUS_MSG = MSG_LANDLINE_PROCESS_PORT_CHANGED;
+  };
+
+  @object GenItemClass UsePortRadio = {
+      GI_visMoniker = "Radio";
+      GII_identifier = USE_PORT_RADIO;
+  }
+  @object GenItemClass UsePortSerial = {
+      GI_visMoniker = "Serial";
+      GII_identifier = USE_PORT_SERIAL;
+  }
+
+
+@object GenInteractionClass SerialBaudGroup = {
+    GI_visMoniker = "Baud Rate";
+    GI_comp = @BaudRate;
+}
+
+  @chunk TCHAR BaudRateTitle[] = "Baud Rate";
+  @object ComplexMonikerClass BaudRate = {
+      ComplexMoniker = GenItemGroupClass;
+      CMI_topText = @BaudRateTitle;
+      CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+      GI_comp = @Baud2400, @Baud9600, @Baud19200, @Baud38400, @Baud57600;
+      GI_states = @default & ~GS_ENABLED;
+      GIGI_selection = SB_9600;
+      GIGI_destination = process;
+      GIGI_applyMsg = MSG_LANDLINE_PROCESS_BAUD_APPLY;
+  };
+  @object GenItemClass Baud2400 = {
+      GI_visMoniker = "2400";
+      GII_identifier = SB_2400;
+  }
+  @object GenItemClass Baud9600 = {
+      GI_visMoniker = "9600";
+      GII_identifier = SB_9600;
+  }
+
+  @object GenItemClass Baud19200 = {
+      GI_visMoniker = "19200";
+      GII_identifier = SB_19200;
+  }
+  @object GenItemClass Baud38400 = {
+      GI_visMoniker = "38400";
+      GII_identifier = SB_38400;
+  }
+  @object GenItemClass Baud57600 = {
+      GI_visMoniker = "57600";
+      GII_identifier = SB_57600;
+  }
+
+@object GenInteractionClass DebugGroup = {
+    GI_visMoniker = "Debug Level";
+    GI_comp = @Debug;
+}
+
+  @chunk TCHAR DebugTitle[] = "Debug Level";
+  @object ComplexMonikerClass Debug = {
+      ComplexMoniker = GenItemGroupClass;
+      CMI_topText = @DebugTitle;
+      CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+      GI_comp = @Debug0,@Debug1,@Debug3,@Debug6,@Debug8;
+      GIGI_selection = 0;
+      GIGI_destination = process;
+      GIGI_applyMsg = MSG_LANDLINE_PROCESS_DEBUG_APPLY;
+  };
+
+  @object GenItemClass Debug0 = {
+      GI_visMoniker = "No logging";
+      GII_identifier = 0;
+  }
+  @object GenItemClass Debug1 = {
+      GI_visMoniker = "1  (Conncetions only)";
+      GII_identifier = 1;
+  }
+  @object GenItemClass Debug3 = {
+      GI_visMoniker = "3  (Login negotiation)";
+      GII_identifier = 3;
+  }
+  @object GenItemClass Debug6 = {
+      GI_visMoniker = "6  (IP packets)";
+      GII_identifier = 6;
+  }
+  @object GenItemClass Debug8 = {
+      GI_visMoniker = "8  (Packet contents)";
+      GII_identifier = 8;
+  }
+
+@object GenTextClass Author = {
+  GI_attrs = @default | GA_READ_ONLY;
+  GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+  GTXI_text = "Version 1.11, by Marcus Gr\x9A\x62\x65r 2001, http://www.mgroeber.de";
+  ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+    DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_10);
+  ATTR_GEN_TEXT_DEFAULT_PARA_ATTR = DEF_PARA_ATTR_RIGHT;
+  HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+/*
+==============================
+	Command Triggers
+==============================
+*/
+
+@object GenInteractionClass NumberEditor = {
+    GI_visMoniker = "Edit Phone Numbers";
+    GII_visibility = GIV_SUB_GROUP;
+    GII_type = GIT_PROPERTIES;
+    GI_comp  = @NumberEditorTrig;
+}
+
+  @object GenTriggerClass NumberEditorTrig = {
+      GTI_destination = @NumberEditorDialog;
+      GTI_actionMsg = MSG_GEN_INTERACTION_INITIATE;
+      HINT_TRIGGER_BRINGS_UP_WINDOW;
+  }
+
+@object ComplexMonikerClass CloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @LandlineApp;
+
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+/*
+==============================
+        Phone Number Editor
+==============================
+*/
+
+@object GenInteractionClass NumberEditorDialog = {
+    GI_visMoniker = "Edit Phone Numbers";
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_COMMAND;
+    GII_attrs = @default | GIA_MODAL | GIA_NOT_USER_INITIATABLE;
+    GI_comp  = @AccessPoint, @NumberEntryDialog;
+}
+
+@chunk TCHAR PhoneEditTitle[] = "Phone Number Editor";
+@object ComplexMonikerClass AccessPoint = {
+    ComplexMoniker = AccessPointControlClass;
+    GI_states = GS_USABLE | GS_ENABLED;
+    CMI_topText = @PhoneEditTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    CMI_iconBitmap = CMB_SETTINGS_TITLE_ICON;
+    APCI_editMsg = MSG_LANDLINE_PROCESS_EDIT_PHONE;
+    GCI_output = process;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+
+    ATTR_GEN_CONTROL_REQUIRE_UI = APCF_LIST | APCF_EDIT;
+}
+
+/*
+==============================
+        Phone Number Entry
+==============================
+*/
+
+@object GenInteractionClass NumberEntryDialog = {
+    GII_visibility = GIV_POPUP;
+    GII_type = GIT_COMMAND;
+    GII_attrs = @default | GIA_MODAL | GIA_INITIATED_VIA_USER_DO_DIALOG;
+    GI_comp  = @EntryOKButton, @EntryBox;
+    HINT_SIZE_WINDOW_AS_DESIRED;
+    HINT_FIXED_SIZE = {SST_PIXELS | 250, 0, 0};
+}
+
+@object ComplexMonikerClass EntryOKButton = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_OK;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_APPLY;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+}
+
+@chunk TCHAR EntryTitle[] = "Modify phone number";
+@object ComplexMonikerClass EntryBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @EntryTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    CMI_iconBitmap = CMB_INPUT_TITLE_ICON;
+    GI_comp = @EntryGreyFrame;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+}
+
+@object GreyFrameClass EntryGreyFrame = {
+    GI_comp = @EntryTextField;
+}
+
+@object GenTextClass EntryTextField = {
+    GTXI_maxLength = MAX_PHONE_NUMBER;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@end    Interface;
+
+@start  Messages, data;
+  @chunk TCHAR MsgReboot[] =
+    "The PPP Library is already loaded. You will have to restart the device "
+    "for the changes to take effect.\r\rRestart now?";
+@end    Messages;
+
+
+
+/*
+############################################################################
+                Code for LandlineProcessClass
+############################################################################
+*/
+@classdecl      LandlineProcessClass, neverSaved;
+
+void CheckReboot(void)
+{
+    /* Check if ppp driver is currently loaded */
+    if(GeodeFind("ppp     ",GEODE_NAME_SIZE,0,0))
+    {
+      /* Ask user for permission to restart */
+      if(FoamDisplayQuestion(@MsgReboot) == IC_YES)
+      {
+        SysShutdown(SST_RESTART);       /* Restart device */
+      }
+    }
+}
+
+@method LandlineProcessClass, MSG_LANDLINE_PROCESS_PORT_CHANGED
+{
+    if(selection==USE_PORT_SERIAL)
+      @call BaudRate::MSG_GEN_SET_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+    else
+      @call BaudRate::MSG_GEN_SET_NOT_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+
+    /* Check if ppp driver is loaded */
+    CheckReboot();
+}
+
+@method LandlineProcessClass, MSG_LANDLINE_PROCESS_PORT_APPLY
+{
+    word baud;
+
+    if(selection==USE_PORT_SERIAL)
+    {
+      InitFileWriteInteger("ppp", "port", LANDLINE_COM);
+      InitFileWriteString("ppp", "portDriver", LANDLINE_DRIVER);
+      baud = @call BaudRate::MSG_GEN_ITEM_GROUP_GET_SELECTION();
+      InitFileWriteInteger("ppp", "baud", baud);
+      InitFileWriteBoolean("security", "mediaAlwaysAvailable", TRUE);
+    }
+    else
+    {
+      InitFileDeleteEntry("ppp", "port");
+      InitFileWriteString("ppp", "portDriver", RADIO_DRIVER);
+      InitFileDeleteEntry("ppp", "baud");
+      InitFileDeleteEntry("security", "mediaAlwaysAvailable");
+    }
+}
+
+@method LandlineProcessClass, MSG_LANDLINE_PROCESS_BAUD_APPLY
+{
+    /* Write new debug setting */
+    InitFileWriteInteger("ppp", "baud", selection);
+
+    /* Check if ppp driver is loaded */
+    CheckReboot();
+}
+
+@method LandlineProcessClass, MSG_LANDLINE_PROCESS_DEBUG_APPLY
+{
+    /* Write new debug setting */
+    InitFileWriteInteger("ppp", "debug", selection);
+
+    /* Check if ppp driver is loaded */
+    CheckReboot();
+}
+
+@method LandlineProcessClass, MSG_LANDLINE_PROCESS_EDIT_PHONE
+{
+    char buf[MAX_PHONE_NUMBER+1];
+    word size = sizeof(buf);
+
+    *buf = 0;
+    AccessPointGetStringPropertyBuffer(id, (char *)APSP_PHONE, buf, &size);
+    @call EntryTextField::MSG_VIS_TEXT_REPLACE_ALL_PTR(buf, 0);
+    if(UserDoDialog(@NumberEntryDialog) == IC_APPLY)
+    {
+      @call EntryTextField::MSG_VIS_TEXT_GET_ALL_PTR(buf);
+      AccessPointSetStringProperty(id, (char *)APSP_PHONE, buf);
+    }
+}
+
+@method LandlineProcessClass, MSG_GEN_PROCESS_OPEN_APPLICATION
+{
+    word portNumber, port, baud, debug;
+    char portDriver[256];
+    word size;
+    Boolean supported = FALSE;
+
+    *portDriver = 0;
+    portNumber = 0xFFFF;
+    InitFileReadInteger("ppp", "port", &portNumber);
+    InitFileReadStringBuffer("ppp", "portDriver", portDriver,
+      sizeof(portDriver), &size);
+
+    if(strcmp(portDriver, LANDLINE_DRIVER)==0)
+    {
+      port = USE_PORT_SERIAL;
+      if(portNumber == LANDLINE_COM)    /* port number compatible? */
+        supported = TRUE;
+    }
+    else if(strcmp(portDriver, RADIO_DRIVER)==0)
+    {
+      port = USE_PORT_RADIO;
+      if(portNumber == 0xFFFF)          /* port number compatible? */
+        supported = TRUE;
+    }
+    else
+      port = 0;
+
+    /* Get current baud rate setting */
+    if(InitFileReadInteger("ppp", "baud", &baud))
+      baud = SB_19200;                  /* default value */
+
+    /* Get current debug setting */
+    if(InitFileReadInteger("ppp", "debug", &debug))
+      debug = 0;                        /* default value */
+
+    /* Update UI to reflect current status */
+    @send UsePort::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(port, !supported);
+    if(port==USE_PORT_SERIAL)
+      @call BaudRate::MSG_GEN_SET_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+    else
+      @call BaudRate::MSG_GEN_SET_NOT_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+    @send BaudRate::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(baud, FALSE);
+    @send Debug::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(debug, FALSE);
+
+    @callsuper();
+}
