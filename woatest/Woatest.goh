@@ -1,0 +1,62 @@
+/////////////////////////////////////////////////////////////////////////
+//
+// PROJECT:     WOA Client Test
+// MODULE:      WOATEST
+// FILE:        WOATEST.goh
+//
+// AUTHOR:      Nokia 9000/9110 Development Environment
+//
+// REVISION HISTORY:
+//      Name    Date            Description
+//      ----    ----            -----------
+//
+// DESCRIPTION:
+//
+//
+// RCS STAMP:
+//
+//
+/////////////////////////////////////////////////////////////////////////
+
+
+/********************************************************************
+ *              Constants
+ *******************************************************************/
+//{{CONSTANTS-GOH
+
+//}}CONSTANTS-GOH
+/********************************************************************
+ *              Data Types
+ *******************************************************************/
+//{{DATATYPES-GOH
+
+//}}DATATYPES-GOH
+/********************************************************************
+ *              Icons
+ *******************************************************************/
+@start iconMonikerResource, data;
+
+/* {{FILE LIST ICON BLOCK}} */
+/* {{END FILE LIST ICON BLOCK}} */
+
+
+/* {{STATUS PANE ICON BLOCK}} */
+/* {{END STATUS PANE ICON BLOCK}} */
+
+
+@end iconMonikerResource;
+
+
+/********************************************************************
+ *              Class Definitions
+ *******************************************************************/
+@class WOATESTVisContentClass, VisContentClass;
+@endc;
+
+//{{CLASSDEFN-GOH
+@class WOATESTProcessClass, GenProcessClass;
+/* {{Class Definitions Block}} */
+@message (GEN_ITEM_GROUP_STATUS_MSG) MSG_WOA_PROCESS_ON_OFF_APPLY;
+
+@endc;
+//}}CLASSDEFN-GOH

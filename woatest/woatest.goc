@@ -1,0 +1,390 @@
+/////////////////////////////////////////////////////////////////////////
+//
+// PROJECT:     WOA Client Test
+// MODULE:      WOATEST
+// FILE:        WOATEST.prj
+//
+// AUTHOR:      Nokia 9000/9110 Development Environment
+//
+// REVISION HISTORY:
+//      Name    Date            Description
+//      ----    ----            -----------
+//
+// DESCRIPTION:
+//
+//
+// RCS STAMP:
+//
+//
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+//              Include Files
+/////////////////////////////////////////////////////////////////////////
+//{{INCLUDE-GOC
+@include <stdapp.goh>
+@include <foam.goh>
+#include <initfile.h>
+#include <timer.h>
+#include <ansi/string.h>
+#include <ansi/stdlib.h>
+#include <ansi/stdio.h>
+@include <WOATEST.goh>
+//}}INCLUDE-GOC
+/////////////////////////////////////////////////////////////////////////
+//              Constants
+/////////////////////////////////////////////////////////////////////////
+
+#define WOA_KEY    "Accept"
+#define WOA_CRLF   "\r\n"
+#define WOA_OPTION "X-WebOnAir:"
+#define WOA_PARAMS "ver=1.0,cid=%ld,gid=0,"\
+                   "html_compress=0,"\
+                   "html_filter=1,"\
+                   "html_del_background=1,"\
+                   "html_del_jscript=1,"\
+                   "html_del_java=1,"\
+                   "text_compress=1,"\
+                   "img_quality=1,"\
+                   "img_grayscale=1,"\
+                   "img_preserve_anims=0,"\
+                   "img_preserve_trans=0,"\
+                   "img_scaling=1,"\
+                   "img_min_size=2000,"\
+                   "transparent=0"
+#define WOA_ADD_SIZE 20
+
+/////////////////////////////////////////////////////////////////////////
+//              Data Types
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+//              Class Definitions
+/////////////////////////////////////////////////////////////////////////
+//Look in GOH File
+
+/////////////////////////////////////////////////////////////////////////
+//              Class Declarations
+/////////////////////////////////////////////////////////////////////////
+//{{CLASSDECL-GOC
+@classdecl WOATESTProcessClass, neverSaved;
+@classdecl WOATESTVisContentClass;
+
+//}}CLASSDECL-GOC
+/////////////////////////////////////////////////////////////////////////
+//              Global Variables
+/////////////////////////////////////////////////////////////////////////
+//{{GLOBALS-GOC
+
+//}}GLOBALS-GOC
+
+
+/////////////////////////////////////////////////////////////////////////
+//              UI Object Resources
+/////////////////////////////////////////////////////////////////////////
+
+@start AppResource;
+
+@object FoamSubApplicationClass WOATESTApp = {
+    GI_visMoniker = list
+    {
+        /* {{FILE LIST ICON BLOCK}} -- DO NOT ERASE */
+        /* {{END FILE LIST ICON BLOCK}} -- DO NOT ERASE */
+
+        /* {{STATUS PANE ICON BLOCK}} -- DO NOT ERASE */
+        /* {{END STATUS PANE ICON BLOCK}} -- DO NOT ERASE */
+//{{DISPLAYNAME-GOC
+         @WOATESTTextMoniker
+//}}DISPLAYNAME-GOC
+
+    };
+    GI_comp = @WOATESTPrimary;
+    FSAI_launcherApp = FA_EXTRAS_APP;
+    gcnList( MANUFACTURER_ID_GEOWORKS, GAGCNLT_WINDOWS ) = @WOATESTPrimary;
+}
+
+/* {{ICON LABEL BLOCK}} -- DO NOT ERASE */
+@visMoniker WOATESTTextMoniker = "Speed\rProxy";
+/* {{END ICON LABEL BLOCK}} -- DO NOT ERASE */
+
+@end AppResource;
+
+@start Interface;
+
+@object GenInteractionClass WOATESTPrimary = {
+    GI_comp = @WOATESTBox,
+/* {{WOATEST INTERFACE RESOURCE BLOCK}} -- DO NOT ERASE -- */
+/* {{END WOATEST INTERFACE RESOURCE BLOCK}} -- DO NOT ERASE -- */
+              @WOATESTCloseTrigger;
+    GII_type = GIT_PROPERTIES;
+    GII_visibility = GIV_DIALOG;
+}
+
+  /*
+   * Main Form
+   */
+@chunk TCHAR WOATESTTitle[] = "D2-SpeedProxy Einstellungen";
+@object ComplexMonikerClass WOATESTBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @WOATESTTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    GI_comp = @SettingsGroup, @Instructions, @Author;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_ORIENT_CHILDREN_VERTICALLY;
+    HINT_FULL_JUSTIFY_CHILDREN_VERTICALLY;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+}
+
+@object GenInteractionClass SettingsGroup = {
+    GI_comp = @UseWOAGroup;
+    HINT_ORIENT_CHILDREN_VERTICALLY;
+}
+
+@object GenInteractionClass UseWOAGroup = {
+    GI_visMoniker = "SpeedProxy benutzen";
+    GI_comp = @UseWOA;
+}
+
+  @chunk TCHAR UseWOATitle[] = "SpeedProxy benutzen";
+  @object ComplexMonikerClass UseWOA = {
+      ComplexMoniker = GenItemGroupClass;
+      CMI_topText = @UseWOATitle;
+      CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+      GI_comp = @UseWOANo, @UseWOAYes;
+      GIGI_selection = FALSE;
+      GIGI_destination = process;
+      GIGI_applyMsg = MSG_WOA_PROCESS_ON_OFF_APPLY;
+  };
+
+  @object GenItemClass UseWOANo = {
+      GI_visMoniker = "Inaktiv";
+      GII_identifier = FALSE;
+  }
+  @object GenItemClass UseWOAYes = {
+      GI_visMoniker = "Aktiv";
+      GII_identifier = TRUE;
+  }
+
+@object GenTextClass Instructions = {
+  GI_attrs = @default | GA_READ_ONLY;
+  GTXI_text = @InstructionsText;
+  ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+    DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_14);
+}
+
+@chunk char InstructionsText[] = {
+  "Dieses Programm erlaubt die Nutzung einiger Features " \
+  "des D2-SpeedProxy: zumindest die Optimierung " \
+  "von HTML-Seiten und das Vereinfachen von " \
+  "Grafiken lassen sich aktivieren.\r\r" \
+  "Erforderliche Einstellungen im Browser:\r\r" \
+  "  HTTP Proxy: 195.21.255.240\r" \
+  "  HTTP Proxy Port: 8182"
+};
+
+@object GenTextClass Author = {
+  GI_attrs = @default | GA_READ_ONLY;
+  GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+  GTXI_text = "by Marcus Gr\x9A\x62\x65r 1999, http://www.mgroeber.de";
+  ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+    DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_10);
+  ATTR_GEN_TEXT_DEFAULT_PARA_ATTR = DEF_PARA_ATTR_RIGHT;
+  HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+  /*
+   * Command Triggers
+   */
+@object ComplexMonikerClass WOATESTCloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @WOATESTApp;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+
+/* {{WOATEST INTERFACE BLOCK}} -- DO NOT ERASE -- */
+/* {{WOATEST END INTERFACE BLOCK}} -- DO NOT ERASE -- */
+
+@chunk TCHAR errKeyNotFound[] = WOA_KEY " not found in INI file.";
+
+@end Interface;
+
+/* {{RESOURCE BLOCK}} -- DO NOT ERASE -- */
+
+
+/********************************************************************
+ *              Code for BaselineProcessClass
+ *******************************************************************/
+
+void UpdateWOAState(void)
+{
+    char *p, *q;
+    Boolean error;
+    MemHandle mh;
+    word size;
+
+    error = InitFileReadStringBlock("WWW", WOA_KEY, &mh, 0, &size);
+    if(!error)
+    {
+        // Get access to memory block with "Accept" entry
+        p = MemLock(mh);
+
+        // Check if WOA option is current active
+        q = strstr(p, WOA_OPTION);
+
+        MemFree(mh);
+    }
+    else
+    {
+        q = NULL;
+    }
+
+    @call UseWOA::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(q? TRUE : FALSE,
+      FALSE);
+}
+
+/********************************************************************
+ *              MSG_GEN_PROCESS_OPEN_APPLICATION
+ ********************************************************************
+ * SYNOPSIS:     Here is where we can intercept the starting of our
+ *               GEOS application. It is a handy place to initialize
+ *               any global variables and set up various user interface
+ *               components.
+ * CALLED BY:    GEOS Kernel
+ * PARAMETERS:   AppAttachFlags attachFlags
+ *               MemHandle      launchBlock
+ *               MemHandle      extraState
+ * RETURNS:      void
+ * SIDE EFFECTS: none
+ * STRATEGY:     In this baseline application there is nothing to do,
+ *               so we just call @callsuper to execute the standard
+ *               behavior.
+ * REVISION HISTORY:
+ *      Name    Date            Description
+ *      ----    ----            -----------
+ *
+ *******************************************************************/
+@method WOATESTProcessClass, MSG_GEN_PROCESS_OPEN_APPLICATION
+{
+    UpdateWOAState();
+    @callsuper ();
+    @call WOATESTApp::MSG_GEN_APPLICATION_INSTALL_TOKEN();
+} /* MSG_GEN_PROCESS_OPEN_APPLICATION */
+
+/********************************************************************
+ *              MSG_GEN_PROCESS_CLOSE_APPLICATION
+ ********************************************************************
+ * SYNOPSIS:     Here is where we can intercept the ending of our
+ *               GEOS application. It is a handy place to free resorces
+ *               allocated by the application or to close files.
+ * CALLED BY:    GEOS Kernel
+ * PARAMETERS:   void
+ * RETURNS:      MemHandle
+ * SIDE EFFECTS: none
+ * STRATEGY:     In this baseline application there is nothing to do,
+ *               so we just call @callsuper to execute the standard
+ *               behavior.
+ * REVISION HISTORY:
+ *      Name    Date            Description
+ *      ----    ----            -----------
+ *
+ *******************************************************************/
+@method WOATESTProcessClass, MSG_GEN_PROCESS_CLOSE_APPLICATION
+{
+    @callsuper ();
+    return(NullHandle);
+} /* MSG_GEN_PROCESS_CLOSE_APPLICATION */
+
+
+/* {{USER-DEFINED METHOD BLOCK}} -- DO NOT ERASE -- */
+
+void RemoveWOAOption(MemHandle mh)
+{
+    char *p, *q, *r;
+
+    // Get access to memory block with "Accept" entry
+    p = MemLock(mh);
+
+    // Check if WOA option is current active: if so, remove it
+    q = strstr(p, WOA_OPTION);
+    if(q)
+    {
+        r = q;
+
+        // Skip back over indentation or beginning of line
+        while(q>p && (*(q-1)=='\n' || *(q-1)=='\r'  || *(q-1)==' '  || *(q-1)=='\t'))
+        {
+            q--;
+        }
+
+        // Skip over rest of line until end of line or block
+        while(*r && *r!='\n' && *r!='\r')
+        {
+            r++;
+        }
+
+        // Remove entire WOA line
+        while(*r)
+        {
+            *(q++) = *(r++);
+        }
+        *q = 0;
+    }
+
+    MemUnlock(mh);
+}
+
+@method WOATESTProcessClass, MSG_WOA_PROCESS_ON_OFF_APPLY
+{
+    Boolean error;
+    MemHandle mh;
+    word size;
+    char *p;
+
+    error = InitFileReadStringBlock("WWW", WOA_KEY, &mh, 0, &size);
+    if(error)
+    {
+      FoamDisplayWarning(@errKeyNotFound);
+      return;
+    }
+
+    if(selection)
+    {
+      // Remove existing entry from line
+      RemoveWOAOption(mh);
+
+      // Make room for new entry
+      MemReAlloc(mh, MemGetInfo(mh, MGIT_SIZE) +
+        sizeof(WOA_CRLF WOA_OPTION " " WOA_PARAMS) + WOA_ADD_SIZE, 0);
+
+      // Append new entry, and store into INI file
+      p = MemLock(mh);
+      sprintf(p+strlen(p), WOA_CRLF WOA_OPTION " " WOA_PARAMS,
+        TimerGetCount());
+      InitFileWriteString("WWW", WOA_KEY, p);
+      MemFree(mh);
+    }
+    else
+    {
+      // Remove entry from line
+      RemoveWOAOption(mh);
+
+      // Store edited entry into INI file
+      p = MemLock(mh);
+      InitFileWriteString("WWW", WOA_KEY, p);
+      MemFree(mh);
+
+      UpdateWOAState();
+    }
+
+    InitFileCommit();
+}
