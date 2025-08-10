@@ -1,0 +1,979 @@
+/////////////////////////////////////////////////////////////////////////
+//
+// PROJECT:     Casio WQV-1 Wrist Camera Connectivity
+//
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+//              Include Files
+/////////////////////////////////////////////////////////////////////////
+@include <stdapp.goh>
+@include <foam.goh>
+#include <initfile.h>
+#include <timer.h>
+#include <streamC.h>
+#include <ansi/string.h>
+#include <ansi/stdlib.h>
+#include <ansi/stdio.h>
+
+#include "idct.h"
+
+// @define DEBUG_OUTPUT
+
+/////////////////////////////////////////////////////////////////////////
+//              Constants
+/////////////////////////////////////////////////////////////////////////
+
+/* size of a picture as produced by the camera */
+#define IMG_SIZE_X 120
+#define IMG_SIZE_Y 120
+
+/* Width to be used when creating a Contacts image */
+#define CONTACTS_IMAGE_WIDTH 100
+
+#define BUFFER_FILE "WQVConn Buffer File"
+#define RAW_TEMP    "WQVCONN.TMP"
+
+#ifdef DO_ERROR_CHECKING
+#  define WQV_PORT      SERIAL_COM2
+#else
+#  define WQV_PORT      SERIAL_COM3
+#endif
+#define WQV_IBUF_SIZE 1024
+#define WQV_OBUF_SIZE 1024
+#define WQV_FORMAT    ((SERIAL_PARITY_NONE << SERIAL_FORMAT_PARITY_OFFSET) | \
+                       (SERIAL_LENGTH_8 << SERIAL_FORMAT_LENGTH_OFFSET))
+#define WQV_BAUD      SERIAL_BAUD_115200
+#define WQV_TIMEOUT   60
+#define WQV_TIMEOUT2  60
+
+#define IR_BOF 0xC0
+#define IR_ESC 0x7D
+#define IR_EOF 0xC1
+
+
+/////////////////////////////////////////////////////////////////////////
+//              Data Types
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+//              Class Definitions
+/////////////////////////////////////////////////////////////////////////
+
+@class WQVConnProcessClass, GenProcessClass;
+  @message void MSG_WCP_CONNECT();
+  @message void MSG_WCP_DISCONNECT();
+  @message void MSG_WCP_SAVE();
+
+  @message void MSG_WCP_ACK_TIMEOUT();
+  @message void MSG_WCP_SEND_FRAME(byte addr, byte control, 
+    byte *data, word len);
+  @message void MSG_WCP_RECV_FRAME(byte addr, byte control,
+    byte *data, word len);
+
+  @message void MSG_WCP_RECV_DATA();
+@endc;
+
+/////////////////////////////////////////////////////////////////////////
+//              Class Declarations
+/////////////////////////////////////////////////////////////////////////
+@classdecl WQVConnProcessClass, neverSaved;
+
+/////////////////////////////////////////////////////////////////////////
+//              Global Variables
+/////////////////////////////////////////////////////////////////////////
+
+VMFileHandle vmf = 0;
+VMBlockHandle bitmap;
+GStateHandle bmpgs;
+
+GeodeHandle serialDriver;
+TimerHandle timer_th;
+word timer_id;
+byte sendBuf[512];
+byte send_addr, send_control;
+word send_len;
+
+byte link_addr;
+
+enum {
+  CS_DISCONNECTED = 0,
+  CS_DISCOVER_SENT,
+  CS_ADDRESS_ASSIGN_SENT,
+  CS_INITIAL_GET_STATUS,
+  CS_IMAGE_REQUESTED,
+  CS_IMAGE_SIZE_REQUESTED,
+  CS_IMAGE_TRANSFER_REQUESTED,
+  CS_DOWNLOADING,
+  CS_END_IMAGE_REQUESTED,
+  CS_END_LINK_REQUESTED,
+} state = CS_DISCONNECTED;
+
+byte frameBuf[512];
+word framePtr;
+Boolean frameEsc;
+
+word imgPtr;
+word ret_control,get_control;
+
+struct {
+  byte name[24];                        // space padded
+  byte year_minus_2000, month, day;
+  byte minute, hour;
+} imgHeader;
+
+struct {
+  Bitmap header;
+  byte data[IMG_SIZE_X*IMG_SIZE_Y/2];
+} imgBitmap;
+
+optr connectProgressDialog;
+
+
+/////////////////////////////////////////////////////////////////////////
+//              UI Object Resources
+/////////////////////////////////////////////////////////////////////////
+
+@start AppResource;
+
+@object FoamSubApplicationClass WQVConnApp = {
+    GI_visMoniker = list
+    {
+         @WQVConnTextMoniker
+    };
+    GI_comp = @WQVConnPrimary, @FilenameEntryDialog;
+    FSAI_launcherApp = FA_SYSTEM_APP;
+    gcnList( MANUFACTURER_ID_GEOWORKS, GAGCNLT_WINDOWS ) = @WQVConnPrimary;
+}
+
+@visMoniker WQVConnTextMoniker = "WQV-1\rConnect";
+
+@end AppResource;
+
+@start Interface;
+
+@object GenPrimaryClass WQVConnPrimary = {
+    GI_comp = @WQVConnBox,
+              @WQVConnConnectTrigger,
+              @WQVConnSaveTrigger,
+              @WQVConnCloseTrigger;
+}
+
+  /*
+   * Main Form
+   */
+@chunk TCHAR WQVConnTitle[] = "Casio WQV-1 Wrist Camera Connectivity";
+@object ComplexMonikerClass WQVConnBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @WQVConnTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    GI_comp = @OutputGroup, @Author;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_ORIENT_CHILDREN_VERTICALLY;
+    HINT_FULL_JUSTIFY_CHILDREN_VERTICALLY;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+}
+
+@object GenInteractionClass OutputGroup = {
+    GI_comp = @PictureView, @Monitor;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+    HINT_ORIENT_CHILDREN_HORIZONTALLY;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@object GenTextClass Monitor = {
+  GI_attrs = @default | GA_READ_ONLY;
+  GTXI_attrs = @default | GTA_INIT_SCROLLING;
+@ifdef DEBUG_OUTPUT
+  GTXI_text = "";
+  ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR = 
+    DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_10);
+@else
+  GTXI_text = "\rTo download the last viewed picture, press 'Connect' on the Communicator, then select 'IR COM' on the watch, select 'PC', and hold the IR ports close to each other.";
+  ATTR_GEN_TEXT_DEFAULT_PARA_ATTR = DEF_PARA_ATTR_CENTER;
+@endif
+  HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+  HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@object GenViewClass PictureView = {
+    /* 
+     * Make view scrollable in X and Y and ensure that it never gets larger
+     * than the thing being displayed within it.
+     */
+    GVI_horizAttrs = @default | GVDA_SCROLLABLE | GVDA_NO_LARGER_THAN_CONTENT;
+    GVI_vertAttrs  = @default | GVDA_SCROLLABLE | GVDA_NO_LARGER_THAN_CONTENT;
+
+    /*
+     * When the contents of this view (i.e. the document) must be updated,
+     * the UI should send a MSG_META_EXPOSED to the HelloProcessClass
+     * object.
+     */
+    GVI_content = process;
+
+    /*
+     * Specify the dimensions of the document being displayed within the view.
+     */
+    GVI_docBounds = {0, 0, IMG_SIZE_X, IMG_SIZE_Y};
+
+    ATTR_GEN_VIEW_DOES_NOT_ACCEPT_TEXT_INPUT;
+}
+
+@object GenTextClass Author = {
+  GI_attrs = @default | GA_READ_ONLY;
+  GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+  GTXI_text = "by Marcus Gr\x9A\x62\x65r 2001, http://www.mgroeber.de";
+  ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+    DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_10);
+  ATTR_GEN_TEXT_DEFAULT_PARA_ATTR = DEF_PARA_ATTR_RIGHT;
+  HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+  /*
+   * Command Triggers
+   */
+@object GenTriggerClass WQVConnConnectTrigger = {
+    GI_visMoniker = "Connect";
+    GTI_actionMsg = MSG_WCP_CONNECT;
+    GTI_destination = process;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+}
+@object GenTriggerClass WQVConnSaveTrigger = {
+    GI_visMoniker = "Save";
+    GTI_actionMsg = MSG_WCP_SAVE;
+    GTI_destination = process;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 1;
+}
+@object ComplexMonikerClass WQVConnCloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @WQVConnApp;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+/*
+==============================
+        Filename dialog
+==============================
+*/
+
+@object GenInteractionClass FilenameEntryDialog = {
+    GII_visibility = GIV_POPUP;
+    GII_type = GIT_COMMAND;
+    GII_attrs = @default | GIA_MODAL | GIA_INITIATED_VIA_USER_DO_DIALOG;
+    GI_comp  = @EntryOKButton, @EntryBox;
+    HINT_SIZE_WINDOW_AS_DESIRED;
+    HINT_FIXED_SIZE = {SST_PIXELS | 250, 0, 0};
+}
+
+@object ComplexMonikerClass EntryOKButton = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_OK;
+    GI_attrs = @default & ~GS_ENABLED;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_APPLY;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+}
+
+@chunk TCHAR EntryTitle[] = "Enter filename to save as";
+@object ComplexMonikerClass EntryBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @EntryTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    CMI_iconBitmap = CMB_INPUT_TITLE_ICON;
+    GI_comp = @EntryGreyFrame;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+}
+
+@object GreyFrameClass EntryGreyFrame = {
+    GI_comp = @EntryTextField, @EntryExtension;
+    HINT_ORIENT_CHILDREN_HORIZONTALLY;
+}
+
+@object GenTextClass EntryTextField = {
+    GTXI_maxLength = 8;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+    ATTR_GEN_TEXT_ALPHA_NUMERIC;
+    HINT_FIXED_SIZE = {8 | SST_WIDE_CHAR_WIDTHS, 0, 0};
+    ATTR_GEN_TEXT_SET_OBJECT_ENABLED_WHEN_TEXT_EXISTS = @EntryOKButton;
+}
+
+@object GenGlyphClass EntryExtension = {
+    GI_visMoniker = ".JPG";
+}
+
+@end Interface;
+
+
+@start Messages, data;
+
+@chunk char NoteSaved[] = "Picture was saved to Contact Images folder.";
+
+@chunk char ConnectStatus[] = "Connected.";
+@chunk char DownloadingStatus[] = "Downloading...";
+
+@chunk char CannotWrite[] = "Cannot save to this file.";
+
+@chunk char FileExists[] = "A file with this name already exists. "
+                           "Do you want to overwrite it?";
+
+@chunk char ClipPicture[] = "Do you want to clip the picture for use as "
+                            "a Contacts image?";
+                         
+@end Messages;
+
+
+@start ConnectProgressDialogTemplate, notDetachable;
+
+@chunk TCHAR CDescriptionText[] = "Connecting to camera";
+@chunk TCHAR CStatusText[] = "Waiting for connection...";
+@object FoamProgressDialogClass ConnectProgressDialog = {
+    FPDI_descriptionText = @CDescriptionText;
+    FPDI_statusText = @CStatusText;
+    FPDI_cancelDestination = process;
+    FPDI_cancelActionMsg = MSG_WCP_DISCONNECT;
+    GII_attrs = (@default | GIA_SYS_MODAL) & ~GIA_MODAL;    
+    GI_states = (@default) & ~GS_USABLE;
+    HINT_DRAW_IN_BOX;
+    ATTR_FOAM_PROGRESS_DIALOG_DONT_DISMISS_ON_CANCEL;
+    ATTR_GEN_CONTROL_REQUIRE_UI = FPDF_CANCEL;
+}
+@end ConnectProgressDialogTemplate;
+
+
+@start SaveProgressDialogTemplate, notDetachable;
+
+@chunk TCHAR SDescriptionText[] = "Saving image";
+@chunk TCHAR SStatusText[] = "Please wait while image is saved.";
+@object FoamProgressDialogClass SaveProgressDialog = {
+    FPDI_descriptionText = @SDescriptionText;
+    FPDI_statusText = @SStatusText;
+    GII_attrs = (@default | GIA_SYS_MODAL) & ~GIA_MODAL;
+    GI_states = (@default) & ~GS_USABLE;
+    HINT_DRAW_IN_BOX;
+    ATTR_GEN_CONTROL_PROHIBIT_UI = FPDF_CANCEL;
+}
+@end SaveProgressDialogTemplate;
+
+
+/********************************************************************
+ *              Code for Process Class
+ *******************************************************************/
+
+@ifdef DEBUG_OUTPUT
+#define DEBUG1(f, d) \
+{ \
+  char str[256]; \
+  sprintf(str, f, d); \
+  @call Monitor::MSG_VIS_TEXT_APPEND_PTR(str, 0); \
+}
+#define DEBUG(f) \
+  @call Monitor::MSG_VIS_TEXT_APPEND_PTR(f, 0)
+@endif
+
+@method WQVConnProcessClass, MSG_META_EXPOSED
+{
+    GStateHandle gstate;
+
+    gstate = GrCreateState(win);
+    GrBeginUpdate(gstate);
+
+    if(vmf)
+      GrDrawHugeImage(gstate, 0,0, IBS_1, vmf, bitmap);
+
+    GrEndUpdate(gstate);
+    GrDestroyState(gstate);
+}
+
+@method WQVConnProcessClass, MSG_GEN_PROCESS_OPEN_APPLICATION
+{
+    word i;
+  
+    FileSetStandardPath(SP_WASTE_BASKET);
+    vmf = VMOpen(BUFFER_FILE, VMAF_FORCE_READ_WRITE, VMO_CREATE_TRUNCATE, 0);
+    if(vmf)
+    {
+      /* Create bitmap to hold imported image */
+      bitmap = GrCreateBitmap(BMF_4BIT | BMT_PALETTE, 
+        IMG_SIZE_X, IMG_SIZE_Y, vmf, NullOptr, &bmpgs);
+
+      /* Preset palette with 16 shades of grey */
+      for(i=0; i<15; i++)
+        GrSetPaletteEntry(bmpgs, i, (i*255)/15, (i*255)/15, (i*255)/15);
+
+      for(i=0; i<15; i++)
+      {
+        GrSetAreaColor(bmpgs, CF_INDEX, i, 0, 0);
+        GrFillRect(bmpgs, 0,i*5,IMG_SIZE_X,(i+1)*5);
+      }
+    }
+  
+    @callsuper();
+}
+
+@method WQVConnProcessClass, MSG_GEN_PROCESS_CLOSE_APPLICATION
+{
+    // Close and destroy bitmap file
+    VMClose(vmf, FALSE);
+    FileSetStandardPath(SP_WASTE_BASKET);
+    FileDelete(BUFFER_FILE);
+
+    vmf = 0;                            // The file is no more
+
+    @call self::MSG_WCP_DISCONNECT();
+
+    return @callsuper();
+}
+
+void putbyte(byte c, word *chksum)
+{
+    /* Escape ambiguous characters */
+    if(c==IR_BOF || c==IR_EOF || c==IR_ESC)
+    {
+      SerialWriteByte(serialDriver, WQV_PORT, STREAM_NO_BLOCK, IR_ESC);
+      SerialWriteByte(serialDriver, WQV_PORT, STREAM_NO_BLOCK, c ^ 0x20);
+    }
+    else
+    {
+      SerialWriteByte(serialDriver, WQV_PORT, STREAM_NO_BLOCK, c);
+    }
+
+    /* update checksum */
+    if(chksum) *chksum += c;
+
+@ifdef DEBUG_OUTPUT
+    if(state!=CS_DOWNLOADING) DEBUG1(" %02x", c);
+@endif
+}
+
+@method WQVConnProcessClass, MSG_WCP_SEND_FRAME
+{
+    word chksum = 0;
+    word i;
+
+@ifdef DEBUG_OUTPUT
+    if(state==CS_DOWNLOADING)
+      DEBUG(".");
+    else if(state==CS_END_IMAGE_REQUESTED)
+      DEBUG("\r");
+@endif
+
+    if(timer_th)                        // Release timeout timer, if any
+    {
+      TimerStop(timer_th, timer_id);
+      timer_th = 0;
+    }
+
+@ifdef DEBUG_OUTPUT
+    if(state!=CS_DOWNLOADING) DEBUG("S:");
+@endif
+
+    SerialWriteByte(serialDriver, WQV_PORT, STREAM_NO_BLOCK, IR_BOF);
+
+    putbyte(addr, &chksum);
+    putbyte(control, &chksum);
+
+    for(i=0; i<len; i++)
+      putbyte(data[i], &chksum);
+
+    putbyte((byte)(chksum>>8), NULL);
+    putbyte((byte)chksum, NULL);
+
+    SerialWriteByte(serialDriver, WQV_PORT, STREAM_NO_BLOCK, IR_EOF);
+
+    /* remember data for possible resend */
+    send_addr = addr;
+    send_control = control;
+    if(data) memcpy(sendBuf, data, len);
+    send_len = len;
+
+    /* schedule a timeout if a reply is not received in time */
+    timer_th = TimerStart(TIMER_EVENT_ONE_SHOT, 
+      ConstructOptr(GeodeGetCodeProcessHandle(), 0), 
+      (state==CS_DOWNLOADING)? WQV_TIMEOUT2 : WQV_TIMEOUT,
+      MSG_WCP_ACK_TIMEOUT, 0, &timer_id);
+
+@ifdef DEBUG_OUTPUT
+    if(state!=CS_DOWNLOADING) DEBUG("\r");
+@endif
+}
+
+@method WQVConnProcessClass, MSG_WCP_ACK_TIMEOUT
+{
+    timer_th = 0;                       // Timer has expired
+
+    if(state==CS_DISCONNECTED)          // Don't resend after disconnect
+      return;
+
+    if(state==CS_ADDRESS_ASSIGN_SENT)   // No response to address assignment?
+    {
+      /* resend discovery request instead, as time probably has changed */
+      @call self::MSG_WCP_SEND_FRAME(0xFF, 0xB3, NULL, 0);     
+      state = CS_DISCOVER_SENT;         // We're starting to connect again
+    }
+    else
+    {
+      /* resend any other packet */
+      @call self::MSG_WCP_SEND_FRAME(send_addr, send_control, sendBuf, send_len);
+    }
+}
+
+@method WQVConnProcessClass, MSG_WCP_RECV_DATA
+{
+    byte c;
+    word i;
+    word chksum;
+  
+    /* already disconnected: ignore left-over incoming data */
+    if(state==CS_DISCONNECTED)
+      return;
+
+    /* get data that can be reached without blocking */
+    while(0==SerialReadByte(serialDriver, WQV_PORT, STREAM_NO_BLOCK, &c))
+    {
+      if(c==IR_BOF)                     // a BOF always starts a new frame
+      {
+        framePtr = 0;                   // reject frame, if any, and restart
+        frameEsc = FALSE;               // didn't hit an ESC char
+      }
+      else if(framePtr!=0xFFFF)         // outside of a frame?
+      {
+        if(c==IR_EOF)                   // end of frame
+        {
+          if(framePtr>=4)               // only if we got all the elements
+          {
+            chksum = 0;
+            for(i=0; i<framePtr-2; i++)
+              chksum += frameBuf[i];    // compute checksum of received data
+            
+            if( chksum == ((((word)frameBuf[i])<<8) + frameBuf[i+1]) )
+            {                           // checksum is correct? accept frame
+              @call self::MSG_WCP_RECV_FRAME(frameBuf[0], frameBuf[1],
+                frameBuf+2, framePtr-4);// process received frame
+            }
+          }
+          framePtr = 0xFFFF;            // start a new frame if BOF received
+        }
+        else if(c==IR_ESC)
+        {
+          frameEsc = TRUE;              // next character is escaped
+        }
+        else                            // an ordinary character...
+        {
+          if(frameEsc)                  // escaped character
+          {
+            frameEsc = FALSE;           // unescape it
+            c ^= 0x20;                  // decode the proper character
+          }
+          if(framePtr<sizeof(frameBuf)) // put character into buffer
+            frameBuf[framePtr++] = c;
+          else
+            framePtr = 0xFFFF;          // overflow: reject frame
+        }
+      }
+    }
+}
+
+@method WQVConnProcessClass, MSG_WCP_RECV_FRAME
+{
+    word i;
+    byte re_addr = link_addr, re_control = 0;
+    byte re_buf[256];
+    word re_len = 0;
+
+@ifdef DEBUG_OUTPUT
+    if(state==CS_DOWNLOADING)
+      DEBUG(".");
+    else
+    {
+      DEBUG1("R: %02x",addr);
+      DEBUG1(" %02x",control);
+      for(i=0; i<len; i++) DEBUG1(" %02x",data[i]);
+      DEBUG("\r");
+    }
+@endif
+
+    switch(state)
+    {
+      case CS_DISCOVER_SENT:
+        if(addr==0xFF && control==0xA3 && len==4)
+        {                               // watch sends time-of-day as "ID"
+          /* Reply with same ID, and use seconds as session address... */
+          re_addr = 0xFF;
+          re_control = 0x93;            // assign session address
+          re_buf[0] = data[0]; re_buf[1] = data[1];
+          re_buf[2] = data[2]; re_buf[3] = data[3];
+          re_buf[4] = link_addr = data[2];
+          re_len = 5;
+          state = CS_ADDRESS_ASSIGN_SENT;
+        }
+        break;
+
+      case CS_ADDRESS_ASSIGN_SENT:
+        if(addr==link_addr && control==0x63)
+        {                               // watch accepted session address
+          /* Query status (?) */
+          re_control = 0x11;
+          state = CS_INITIAL_GET_STATUS;
+        }
+        break;
+
+      case CS_INITIAL_GET_STATUS:
+        if(addr==link_addr && control==0x01)
+        {                               // watch reported ready state (?)
+          re_control = 0x10;            // transfer command
+          re_buf[0] = 0x00;             // send single image
+          re_len = 1;
+          state = CS_IMAGE_REQUESTED;
+
+          UserStandardSound(SST_NOTIFY);
+          @call connectProgressDialog::
+            MSG_FOAM_PROGRESS_DIALOG_SET_STATUS_TEXT_OPTR(@ConnectStatus);
+        }
+        break;
+
+      case CS_IMAGE_REQUESTED:
+        if(addr==link_addr && control==0x21)
+        {                               // watch acknowledged command
+          /* Query status (?) */
+          re_control = 0x11;
+          state = CS_IMAGE_SIZE_REQUESTED;
+        }
+        break;
+
+      case CS_IMAGE_SIZE_REQUESTED:
+        if(addr==link_addr && control==0x20)
+        {                               // watch acknowledged command
+          /* Request transfer */
+          re_control = 0x32;            // transfer command
+          re_buf[0] = 0x06;             // start transfer
+          re_len = 1;
+          state = CS_IMAGE_TRANSFER_REQUESTED;
+        }
+        break;
+
+      case CS_IMAGE_TRANSFER_REQUESTED:
+        if(addr==link_addr && control==0x41)
+        {                               // watch acknowledged command
+          ret_control = 0x42;
+          get_control = 0x31;
+          imgPtr = 0;                   // no data received yet          
+
+          imgBitmap.header.B_width = IMG_SIZE_X;
+          imgBitmap.header.B_height = IMG_SIZE_Y;
+          imgBitmap.header.B_compact = BMC_UNCOMPACTED;
+          imgBitmap.header.B_type = BMF_4BIT;
+
+          re_control = get_control;     // get one packet of image data
+          state = CS_DOWNLOADING;       // we're moving
+          @call connectProgressDialog::
+            MSG_FOAM_PROGRESS_DIALOG_SET_STATUS_TEXT_OPTR(@DownloadingStatus);
+        }
+        break;
+
+      case CS_DOWNLOADING:
+        if(addr==link_addr && control==ret_control && len>1 && data[0]==0x05)
+        {
+          /* Transfer image data into header or bitmap */
+          for(i=1; i<len; i++)
+          {
+            if(imgPtr < sizeof(imgHeader))
+              ((byte *)&imgHeader)[imgPtr] = data[i];
+            else
+              imgBitmap.data[imgPtr - sizeof(imgHeader)] = 
+                ((data[i]>>4) | (data[i]<<4))^ 0xFF;
+            imgPtr++;                   // advance to next double pixel
+          }
+
+          /* Did we receive all data? */
+          if(imgPtr<sizeof(imgHeader)+IMG_SIZE_X*IMG_SIZE_Y/2)
+          {         
+            if(get_control == 0xF1)     // control bytes for next exchange
+              get_control = 0x11;
+            else
+              get_control += 0x20;
+
+            if(ret_control == 0x4E)
+              ret_control = 0x40;
+            else
+              ret_control += 0x02;
+
+            re_control = get_control;   // get next image packet
+          }
+          else
+          {
+            /* Copy received picture into off-screen buffer */
+            GrDrawBitmap(bmpgs, 0, 0, &imgBitmap.header, NULL);
+
+            /* Redraw off-screen buffer */
+            @call PictureView::MSG_GEN_VIEW_REDRAW_CONTENT();
+
+            /* Signal end of image transfer */
+            re_control = 0x54;
+            re_buf[0] = 0x06;
+            re_len = 1;
+            state = CS_END_IMAGE_REQUESTED;
+          }
+        }
+        break;
+
+      case CS_END_IMAGE_REQUESTED:
+        if(addr==link_addr && control==0x61)
+        {
+          /* Terminate link */
+          re_control = 0x53;
+          state = CS_END_LINK_REQUESTED;
+        }
+        break;
+
+      case CS_END_LINK_REQUESTED:
+        if(addr==link_addr && control==0x63)
+        {
+          /* Link is down */
+          @call self::MSG_WCP_DISCONNECT();
+          
+          UserStandardSound(SST_NOTIFY);
+        }
+        break;
+    }
+
+    /* Do we have an answer to this? Send it */
+    if(re_control)
+      @call self::MSG_WCP_SEND_FRAME(re_addr, re_control, re_buf, re_len);
+}
+
+@method WQVConnProcessClass, MSG_WCP_CONNECT
+{
+    StreamError err;
+  
+    if(state!=CS_DISCONNECTED)
+      return;
+
+@ifdef DEBUG_OUTPUT
+    DEBUG("Connect\r");
+@endif
+
+    serialDriver = SerialLoadDriver();
+
+    /* Try to get access to the serial driver for us */
+    err = SerialOpen(serialDriver, WQV_PORT, STREAM_OPEN_NO_BLOCK, 
+      WQV_IBUF_SIZE, WQV_OBUF_SIZE, 0);
+    
+    if(!err)
+    {
+      /* Set serial parameters as used by WQV-1 camera */
+      SerialSetFormat(serialDriver, WQV_PORT, WQV_FORMAT, SM_RAW, WQV_BAUD);
+
+      /* Enable notification on incoming data */
+      StreamSetMessageNotify(serialDriver, WQV_PORT,
+        ((1 << STREAM_TYPE_READER_OFFSET) |
+         (STREAM_EVENT_DATA << STREAM_TYPE_EVENT_OFFSET) |
+         (STREAM_MODE_MESSAGE << STREAM_TYPE_HOW_OFFSET)),
+        MSG_WCP_RECV_DATA, ConstructOptr(GeodeGetCodeProcessHandle(),0));
+      
+      /* Send discovery request */
+      @call self::MSG_WCP_SEND_FRAME(0xFF, 0xB3, NULL, 0);
+      
+      state = CS_DISCOVER_SENT;         // We're starting to connect
+      framePtr = 0xFFFF;                // Outside of any received frame
+
+      /* Show progress dialog while actual export is taking place */
+      connectProgressDialog = PutUpDialogViaUIThread(@ConnectProgressDialog);
+    }
+}
+
+@method WQVConnProcessClass, MSG_WCP_DISCONNECT
+{
+    if(state==CS_DISCONNECTED)
+      return;
+
+@ifdef DEBUG_OUTPUT
+    DEBUG("Disconnect\r");
+@endif
+   
+    StreamSetNoNotify(serialDriver, WQV_PORT,
+      ((1 << STREAM_TYPE_READER_OFFSET) |
+       (STREAM_EVENT_DATA << STREAM_TYPE_EVENT_OFFSET) |
+       (STREAM_MODE_MESSAGE << STREAM_TYPE_HOW_OFFSET)));
+    SerialClose(serialDriver, WQV_PORT, STREAM_DISCARD );
+    GeodeFreeDriver(serialDriver);      // Don't need a driver any more
+      
+    if(timer_th)                        // Release timeout timer, if any
+    {
+      TimerStop(timer_th, timer_id);
+      timer_th = 0;
+    }
+
+    state = CS_DISCONNECTED;            // We're done
+ 
+    /* Can do away with progress dialog now */
+    TakeDownDialogViaUIThread(connectProgressDialog); 
+}
+
+Boolean TestFileExists(char *fname)
+{
+    FileHandle fh;
+    Boolean ret;
+
+    fh = FileOpen(fname, FILE_ACCESS_R | FILE_DENY_R);
+    if(fh)                              // Attempt to open file
+    {
+      FileClose(fh, FALSE);
+      ret = TRUE;                       // File exists
+    }
+    else
+      ret = FALSE;                      // File doesn't exist
+
+    return ret;
+}
+
+Boolean SaveBitmap(char *fname)
+{
+    word x,y;
+    FileHandle raw;
+    struct {
+      byte r,g,b;
+    } line[IMG_SIZE_X];
+    byte *p;
+    word c;
+    word size;
+    Boolean cancel = FALSE;
+    struct IMSG_INPUT imsgInput = {
+      RAW_TEMP,               // inputFileName
+      "WQV.JPG",              // outputFileName (overwritten)
+      IMSG_INPUT_TYPE_RAW,    // inputFiletype
+      NULL,                   // cancelOperation (overwritten)
+      IMSG_MODE_CONVERT_TO_JPEG,  // operationMode
+      1,                      // scalingMode
+      0,                      // rotationAngle,
+      3,                      // targetSizeControl
+      0,                      // Q_value
+      0,                      // targetSizeInBytes
+      2,                      // colorInformation
+
+      /* Settings for leaving picture in its original size */
+      IMG_SIZE_X, IMG_SIZE_Y, // outputDimX/Y
+      -1, -1,                 // grabTopLeftX/Y
+      -1, -1,                 // grabWidth/Height  
+
+      IMG_SIZE_X, IMG_SIZE_Y, // inputDimX/Y
+      0,                      // nComp
+      {{0,0},{0,0},{0,0}}     // samplingFactors
+    };
+    struct IMSG_OUTPUT imsgOutput;
+    optr progressDialog;
+
+    /*
+     * Convert bitmap into raw RGB file for IDCT input
+     */
+    raw = FileCreate(RAW_TEMP,
+      (FILE_CREATE_TRUNCATE | FCF_NATIVE) | (FILE_ACCESS_RW | FILE_DENY_RW),
+      0);
+
+    if(!raw) return TRUE;               // Abort on error
+
+    /* If the picture is to be used as a Contacts image, clip it to the
+       proper aspect ratio by taking off pixels on each side. */
+    if(FoamDisplayQuestion(@ClipPicture)==IC_YES)
+    {
+      imsgInput.outputDimX = imsgInput.grabWidth = CONTACTS_IMAGE_WIDTH;
+      imsgInput.outputDimY = imsgInput.grabHeight = IMG_SIZE_Y;
+      imsgInput.grabTopLeftX = (IMG_SIZE_X - CONTACTS_IMAGE_WIDTH) / 2;
+      imsgInput.grabTopLeftY = 0;
+    }
+
+    /* Show progress dialog while actual export is taking place */
+    progressDialog = PutUpDialogViaUIThread(@SaveProgressDialog);
+
+    for(y=0; y<IMG_SIZE_Y; y++)
+    {
+      /* Process one line in huge array */
+      HugeArrayLock(vmf, bitmap, y, &p, &size);
+      for(x=0; x<IMG_SIZE_X; x+=2)
+      {
+        c = p[x/2];                     // get two pixels  
+        line[x].r = line[x].g = line[x].b = ((c>>4)*255)/15;
+        line[x+1].r = line[x+1].g = line[x+1].b = ((c & 0x0F)*255)/15;
+      }
+      HugeArrayUnlock(p);
+      /* Write one line into raw file */
+      FileWrite(raw, line, sizeof(line), FALSE);
+    }
+    FileClose(raw, FALSE);
+
+    /* Convert image from raw to JPEG */
+    imsgInput.cancelOperation = &cancel;
+    imsgInput.outputFileName = fname;
+    ImsgMainEngine(&imsgInput, &imsgOutput);
+
+    /* Done with raw image */
+    FileDelete(RAW_TEMP);
+
+    /* Can do away with progress dialog now */
+    TakeDownDialogViaUIThread(progressDialog);
+    
+    return (imsgOutput.status != IMSG_STATUS_OK);
+}
+
+@method WQVConnProcessClass, MSG_WCP_SAVE
+{
+    Boolean     loop_filename;
+    char        filename[13];
+
+    if(FoamWarnIfNotEnoughSpace(IMG_SIZE_X*IMG_SIZE_Y*3L + 5000)==FDSS_FULL)
+      return;                       // Abort if temporary file would fill disk
+    
+    /* This is where it will all take place... */
+    FoamSetDocumentDir(FDD_CONTACT_IMAGES);
+    
+    loop_filename = TRUE;           // Re-enter filename until finished
+    while(loop_filename)
+    {
+      if(UserDoDialog(@FilenameEntryDialog)==IC_APPLY)
+      {
+        @call EntryTextField::MSG_VIS_TEXT_GET_ALL_PTR(filename);
+        strcat(filename, ".JPG");   // Create filename for image file
+
+        if(!TestFileExists(filename) ||
+           FoamDisplayQuestion(@FileExists)==IC_YES)
+        {
+          if(SaveBitmap(filename))
+          {                         // Try to save logo to Kessler File
+            FoamDisplayError(@CannotWrite);
+                                    // Error saving file
+          }
+          else
+          {
+            FoamDisplayNoteNoBlock(@NoteSaved);
+            loop_filename = FALSE;
+
+            /* Bring up error if disk became full */
+            FoamWarnSpaceAfterOperation();
+          }
+        }
+      }
+      else                          // "Cancel" selected
+        loop_filename = FALSE;      // Back to preview
+    }
+}
