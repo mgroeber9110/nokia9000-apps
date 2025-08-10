@@ -1,0 +1,353 @@
+/*
+===============================================================================
+
+   Project:     Nokia INI Editing Tool
+   File:        n9000ini.goc
+
+   Author:      Marcus Groeber
+
+
+===============================================================================
+*/
+
+/*
+############################################################################
+		Include Files
+############################################################################
+*/
+@include <stdapp.goh>	/* standard include file for GEOS applications */
+@include <foam.goh>	/* many Nokia UI dialog boxes contained herein */
+#include <initfile.h>
+#include <ansi/stdio.h>
+#include <ansi/string.h>
+
+/*
+############################################################################
+		Global variables and constants
+############################################################################
+*/
+#define MAX_CAT_KEY_SIZE 32
+
+/*
+############################################################################
+		New classes
+############################################################################
+*/
+@class TemplateProcessClass, GenProcessClass;
+  @message (GEN_TRIGGER_ACTION) MSG_INI_EDIT;
+@endc;
+
+@classdecl      TemplateProcessClass, neverSaved;
+
+
+
+/*
+############################################################################
+		UI Objects
+############################################################################
+*/
+/*
+------------------------------
+	Application Object
+------------------------------
+*/
+@start   AppResource;
+
+@object FoamSubApplicationClass TemplateApp = {
+    GI_comp = @TemplatePrimary;
+    FSAI_launcherApp = FA_SYSTEM_APP;
+    gcnList(MANUFACTURER_ID_GEOWORKS, GAGCNLT_WINDOWS) = @TemplatePrimary;
+    GI_visMoniker = list { @TemplateTextMoniker };
+}
+
+@visMoniker TemplateTextMoniker = "INI Editing\rTool";
+
+@end     AppResource;
+
+/*
+------------------------------
+	UI Objects
+------------------------------
+*/
+@start   Interface;
+
+@object GenPrimaryClass TemplatePrimary = {
+    GI_comp  = @AboutBox,
+               @EditValueDialog,
+               @PeekTriggerWrapper,
+	       @CloseTrigger;
+}
+
+
+/*
+=============================
+	About Box
+=============================
+*/
+@chunk TCHAR AboutTitle[] = "Simple INI Editing Tool";
+
+@object ComplexMonikerClass AboutBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @AboutTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    GI_comp = @ControlGroup;
+
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+}
+
+@object GenInteractionClass ControlGroup = {
+    GI_comp = @CategoryText, @KeyText, @Spacer, @Author;
+
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = {SST_PIXELS | 20};
+}
+
+@object UnderlinedGenTextClass CategoryText = {
+    GI_visMoniker = "[Category]:";
+    GTXI_maxLength = MAX_CAT_KEY_SIZE;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+
+    HINT_PLACE_MONIKER_TO_LEFT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_FIXED_SIZE = {0, SST_LINES_OF_TEXT | 1};
+    ATTR_GEN_TEXT_ALPHA_NUMERIC;
+    ATTR_GEN_TEXT_SET_OBJECT_ENABLED_WHEN_TEXT_EXISTS = @PeekTriggerWrapper;
+}
+
+@object UnderlinedGenTextClass KeyText = {
+    GI_visMoniker = "Key:";
+    GTXI_maxLength = MAX_CAT_KEY_SIZE;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+
+    HINT_PLACE_MONIKER_TO_LEFT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_FIXED_SIZE = {0, SST_LINES_OF_TEXT | 1};
+    ATTR_GEN_TEXT_ALPHA_NUMERIC;
+    ATTR_GEN_TEXT_SET_OBJECT_ENABLED_WHEN_TEXT_EXISTS = @PeekTrigger;
+}
+
+@object GenInteractionClass Spacer = {
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+}
+
+@object GenTextClass Author = {
+    GI_attrs = @default | GA_READ_ONLY;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+    GTXI_text = "Version 1.1, by Marcus Gr\x9A\x62\x65r 2001, http://www.mgroeber.de";
+    ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+      DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_10);
+    ATTR_GEN_TEXT_DEFAULT_PARA_ATTR = DEF_PARA_ATTR_RIGHT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+/*
+ *    "Edit Value" dialog
+ */
+@object GenInteractionClass EditValueDialog = {
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_COMMAND;
+    GII_attrs = @default | GIA_MODAL | GIA_INITIATED_VIA_USER_DO_DIALOG;
+    GI_comp  = @EditValueOKButton, @EditValueDeleteButton, @EditValueBox;
+}
+
+@object ComplexMonikerClass EditValueOKButton = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_OK;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_APPLY;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+}
+
+@object ComplexMonikerClass EditValueDeleteButton = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_DELETE;
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_CUSTOM_START;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 2;
+}
+
+//@chunk TCHAR EditValueTitle[] = "Edit Value";
+@object ComplexMonikerClass EditValueBox = {
+    ComplexMoniker = GenInteractionClass;
+//    CMI_topText = @EditValueTitle;
+//    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+//    CMI_iconBitmap = CMB_INPUT_TITLE_ICON;
+    GI_comp = @EditEntryText, @EditValueText, @EditFooterText;
+
+//    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+//    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+}
+
+@object GenTextClass EditEntryText = {
+    GI_attrs = @default | GA_READ_ONLY;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_FIXED_SIZE = {0, 2 | SST_LINES_OF_TEXT, 0};
+    ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+      DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_MONO, VTDS_18);
+}
+
+@object UnderlinedGenTextClass EditValueText = {
+    GTXI_attrs = @default | GTA_INIT_SCROLLING;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_DEFAULT_FOCUS;
+    HINT_DEFAULT_TARGET;
+    HINT_FIXED_SIZE = {0, 6 | SST_LINES_OF_TEXT, 0};
+}
+
+@object GenTextClass EditFooterText = {
+    GI_attrs = @default | GA_READ_ONLY;
+    GTXI_text = "}";
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_FIXED_SIZE = {0, 1 | SST_LINES_OF_TEXT, 0};
+    ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+      DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_MONO, VTDS_18);
+}
+
+/*
+==============================
+	Command Triggers
+==============================
+*/
+
+/* A little trick to make the Edit trigger depend on *two* text fields that
+   both have to contain text to set it enabled via the
+   ATTR_GEN_TEXT_SET_OBJECT_ENABLED_WHEN_TEXT_EXISTS attribute.
+ */
+@object GenInteractionClass PeekTriggerWrapper = {
+    GI_states = @default & ~GS_ENABLED;
+    GI_comp = @PeekTrigger;
+}
+
+@chunk TCHAR PeekName[] = "Edit";
+@object ComplexMonikerClass PeekTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = @PeekName;
+    GI_states = @default & ~GS_ENABLED;
+    GTI_actionMsg = MSG_INI_EDIT;
+    GTI_destination = (TO_PROCESS);
+
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+    HINT_DEFAULT_DEFAULT_ACTION;
+}
+
+@object ComplexMonikerClass CloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @TemplateApp;
+
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+@chunk TCHAR DeleteEntry[] = "Do you really want to remove this entry?";
+
+@end    Interface;
+
+
+
+/*
+############################################################################
+		Code for TemplateProcessClass
+############################################################################
+*/
+
+@method TemplateProcessClass, MSG_INI_EDIT
+{
+    char catBuf[MAX_CAT_KEY_SIZE+1],
+         keyBuf[MAX_CAT_KEY_SIZE+1],
+         catKeyBuf[MAX_CAT_KEY_SIZE*2 + 10];
+    MemHandle block, block2;
+    word size;
+    char *p,*q;
+    word ret;
+
+    @call CategoryText::MSG_VIS_TEXT_GET_ALL_PTR(catBuf);
+    @call KeyText::MSG_VIS_TEXT_GET_ALL_PTR(keyBuf);
+
+    sprintf(catKeyBuf, "[%s]\r%s = {", catBuf, keyBuf);
+    @call EditEntryText::MSG_VIS_TEXT_REPLACE_ALL_PTR(catKeyBuf, 0);
+
+    /* Try to get current value of INI entry into block */
+    if(InitFileReadStringBlock(catBuf, keyBuf, &block,
+         (IFCC_INTACT<<IFRF_CHAR_CONVERT_OFFSET), &size))
+    {
+      @call EditValueText::MSG_VIS_TEXT_DELETE_ALL();
+    }
+    else
+    {
+      /* Remove LFs after CRs in multi-line entries */
+      p = MemLock(block);
+      for(q=p; *p; p++)
+        if(*p!='\n')
+          *(q++) = *p;
+      *q = 0;
+      MemUnlock(block);
+
+      @call EditValueText::MSG_VIS_TEXT_REPLACE_ALL_BLOCK(block, 0);
+      MemFree(block);
+      @call EditValueText::MSG_VIS_TEXT_SELECT_START();
+    }
+
+    /* Present current value to user for editing */
+    ret = UserDoDialog(@EditValueDialog);
+    if(ret == IC_APPLY)
+    {
+      /* User chose to apply? Get new value */
+      block = @call EditValueText::MSG_VIS_TEXT_GET_ALL_BLOCK(NullHandle);
+
+      /* Compute size with all CRs expanded to CR/LF */
+      p = MemLock(block);
+      size = strlen(p)+1;
+      for(;*p;p++)
+        if(*p=='\r')
+          size++;
+
+      /* Allocate a new block to hold the expanded version */
+      block2 = MemAlloc(size, HF_FIXED, 0);
+      for(p = MemDeref(block), q = MemDeref(block2); *p; p++)
+      {
+        *(q++) = *p;
+        if(*p=='\r')                    // Insert LF after CR
+          *(q++) = '\n';
+      }
+      *q = 0;
+      MemFree(block);
+
+      /* Write new version */
+      InitFileWriteString(catBuf, keyBuf, MemDeref(block2));
+
+      MemFree(block2);
+      InitFileCommit();
+    }
+    else if(ret == IC_CUSTOM_START)
+    {
+      /* Use chose delete: remove it */
+      if(FoamDisplayOkCancelWarning(@DeleteEntry)==IC_APPLY)
+      {
+        InitFileDeleteEntry(catBuf, keyBuf);
+        InitFileCommit();
+      }
+    }
+}
+
