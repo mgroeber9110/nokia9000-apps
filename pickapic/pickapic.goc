@@ -1,0 +1,244 @@
+/********************************************************************
+ *
+ *      Copyright (c) Geoworks 1996 -- All Rights Reserved.
+ *
+ * PROJECT:     Pick-A-Pic
+ * MODULE:      PickAPic
+ * FILE:        PickAPic.goc
+ *
+ * AUTHOR:      Marcus Groeber
+ *
+ *******************************************************************/
+
+/********************************************************************
+ *              Include Files
+ *******************************************************************/
+@include <stdapp.goh> /* standard include file for GEOS applications */
+@include <foam.goh>   /* many Nokia UI dialog boxes contained herein */
+@include <viewer.goh>
+@include <internal\resp\imgctrl.goh>
+
+#include <ansi/string.h>
+
+/********************************************************************
+ *              Constants
+ *******************************************************************/
+
+/********************************************************************
+ *              Data Types
+ *******************************************************************/
+
+/********************************************************************
+ *              Class Definitions
+ *******************************************************************/
+    @class PickAPicProcessClass, GenProcessClass;
+      @message void MSG_PAPPC_COPY();
+    @endc;
+
+    @class MyFileOpenControlClass, FileOpenControlClass;
+    @endc;
+
+/********************************************************************
+ *              Class Declarations
+ *******************************************************************/
+    @classdecl PickAPicProcessClass, neverSaved;
+    @classdecl MyFileOpenControlClass;
+
+/********************************************************************
+ *              UI Object Resources
+ *******************************************************************/
+
+/********************************************************************
+ *              AppResource Resource
+ *******************************************************************/
+@start AppResource;
+
+@object FoamSubApplicationClass PickAPicApp = {
+    GI_visMoniker = list { @PickAPicTextMoniker };
+    GI_comp = @PickAPicPrimary;
+    FSAI_launcherApp = FA_EXTRAS_APP;
+    gcnList( MANUFACTURER_ID_GEOWORKS, GAGCNLT_WINDOWS ) =
+        @PickAPicPrimary;
+    gcnList( MANUFACTURER_ID_GEOWORKS, MGCNLT_ACTIVE_LIST ) = 
+        @MyFileOpen;
+    gcnList( MANUFACTURER_ID_GEOWORKS, GAGCNLT_VIEWER_NOTIFICATIONS ) =
+	    @MyFileOpen;
+}
+
+@visMoniker PickAPicTextMoniker = "Pick-A-Pic";
+
+@end AppResource;
+
+/********************************************************************
+ *              Interface Resource
+ *******************************************************************/
+@start Interface;
+
+@object GenInteractionClass PickAPicPrimary = {
+    GI_comp = @MyFileOpen,
+              @PickAPicCloseTrigger;
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_COMMAND;
+}
+
+@chunk TCHAR FCMoniker[] = "Select image to put into clipboard";
+@object MyFileOpenControlClass MyFileOpen = {
+  CMI_topText = @FCMoniker; 
+
+  HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+  HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+  HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+
+  ATTR_GEN_CONTROL_PROHIBIT_UI = FOF_CREATE_NEW;
+  ATTR_GEN_CONTROL_REQUIRE_UI =
+    FOF_FULL_MENU & ~(FOF_COPY_TO_SOUNDS | FOF_CREATE_NEW);
+
+  HINT_FILE_OPEN_DONT_FILTER_DOCUMENT_SUB_DIRS;
+  ATTR_FILE_OPEN_INCLUDE_DIR = @IncludeDirList;
+  ATTR_FILE_OPEN_INCLUDE_FILE = @IncludeList;
+}
+
+@chunk word IncludeDirList[] = {
+    FDD_CREATED_TEXTS,
+    FDD_DOWNLOADED_FILES,
+    FDD_MMC
+};
+
+@chunk GeodeToken IncludeList[] = {
+    {"", MANUFACTURER_ID_GEOWORKS}
+};
+
+
+/*
+@object GenViewClass PickAPickView = {
+    GVI_attrs = @default | GVA_DRAG_SCROLLING
+                         | GVA_WINDOW_COORDINATE_MOUSE_EVENTS
+                         | GVA_DONT_SEND_KBD_RELEASES | GVA_FOCUSABLE;
+    GVI_horizAttrs = @default | GVDA_SCROLLABLE | GVDA_NO_LARGER_THAN_CONTENT;
+    GVI_vertAttrs  = @default | GVDA_SCROLLABLE | GVDA_NO_LARGER_THAN_CONTENT;
+    GVI_content = process;
+    GVI_docBounds = {0, 0, 1000, 1000};
+
+    HINT_DEFAULT_TARGET;
+    ATTR_GEN_VIEW_DOES_NOT_ACCEPT_TEXT_INPUT;
+}
+*/
+
+
+  /*
+   * Command Triggers
+   */
+@object ComplexMonikerClass PickAPicCloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @PickAPicApp;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+@chunk TCHAR CantOpen[] = "File cannot be opened. Maybe it is not an image, or an unsupported format.";
+@chunk TCHAR Success[] = "Image was successfully put into the clipboard.";
+
+@end Interface;
+
+
+/********************************************************************
+ *              Code for MyFileOpenControlClass
+ *******************************************************************/
+
+/* (based on sample from SDK docs) */
+
+ /* Disable and re-enable triggers whose slots overlap 
+   the FileOpenControl's when it views a subdirectory. */
+@method MyFileOpenControlClass, MSG_FILE_OPEN_CONTROL_SUB_DIR_OPEN 
+{ 
+    @send PickAPicCloseTrigger::MSG_GEN_SET_NOT_USABLE( VUM_DELAYED_VIA_APP_QUEUE );
+}
+
+@method MyFileOpenControlClass, MSG_FILE_OPEN_CONTROL_SUB_DIR_CLOSE 
+{
+    @send PickAPicCloseTrigger::MSG_GEN_SET_USABLE( VUM_DELAYED_VIA_APP_QUEUE );
+}
+
+@method MyFileOpenControlClass, MSG_FILE_OPEN_CONTROL_OPEN
+{
+    VMFileHandle      vmf;  /* VM file handle of Transfer VM File */
+    VisTextGraphic    vtg;
+    optr              text;
+    GStateHandle      gstate;
+    VMBlockHandle     dataVMBlock;
+    VMBlockHandle     headerVMBlock;   /* VM handle of attached header block */
+    ClipboardItemHeader *headerMem;    /* ClipboardItemHeader for the VM file */
+    MemHandle         headerMemHandle; /* handle of ClipboardItemHeader block */
+    ImageViewerDrawStatus ds;
+    word              width, height, zoom;
+
+    vmf = ClipboardGetClipboardFile();
+
+    gstate = GrCreateGString(vmf, GST_VMEM, &dataVMBlock);
+    //GrSetBitmapRes(gstate, 203, 196);
+    ds = ImageViewerDrawBitmapToGState(docInfo, gstate, &height, &width, &zoom);
+    GrDestroyGString(gstate, 0, GSKT_LEAVE_DATA);
+
+    if(ds == IVDS_OK)
+    {
+      memset(&vtg,0,sizeof(VisTextGraphic));
+      vtg.VTG_type = VTGT_GSTRING;
+      vtg.VTG_flags = 0;
+      vtg.VTG_data.VTGD_gstring.VTGG_tmatrix.TM_e11.WWF_int = 1;
+      vtg.VTG_data.VTGD_gstring.VTGG_tmatrix.TM_e22.WWF_int = 1;
+      vtg.VTG_vmChain = VMCHAIN_MAKE_FROM_VM_BLOCK(dataVMBlock);
+      vtg.VTG_size.XYS_width = width;
+      vtg.VTG_size.XYS_height = height;
+
+      text = TextAllocClipboardObject(vmf, VTSF_GRAPHICS, 0);
+
+      @call text::MSG_VIS_TEXT_REPLACE_WITH_GRAPHIC(vtg, vmf, 0, 0, 0);
+
+      VMFreeVMChain(vmf, VMCHAIN_MAKE_FROM_VM_BLOCK(dataVMBlock));
+
+      dataVMBlock = @call text::MSG_VIS_TEXT_CREATE_TRANSFER_FORMAT(0, vmf,
+        0, TEXT_ADDRESS_PAST_END, 0);
+      TextFinishWithClipboardObject(text, TCO_RETURN_NOTHING,
+        HandleToOptr(GeodeGetProcessHandle()), "");
+
+      /*** Now, allocate and fill in the transfer item header block. ***/
+      headerVMBlock = VMAlloc(vmf, sizeof(ClipboardItemHeader), 1111);
+      headerMem = (ClipboardItemHeader *)VMLock(vmf, headerVMBlock,
+							  &headerMemHandle);
+      headerMem->CIH_owner = (optr) (((dword)GeodeGetProcessHandle()<<16) | 0);
+      headerMem->CIH_flags = 0;           /* Normal transfer; no flags. */
+      headerMem->CIH_sourceID = 0;
+      strcpy(headerMem->CIH_name, "Pick-a-Pic clip");
+
+      /*** Copy and describe Text format. ***/
+      headerMem->CIH_formats[0].CIFI_format =
+        FormatIDFromManufacturerAndType(MANUFACTURER_ID_GEOWORKS, CIF_TEXT);
+      headerMem->CIH_formats[0].CIFI_vmChain =
+        VMCHAIN_MAKE_FROM_VM_BLOCK(dataVMBlock);
+      headerMem->CIH_formats[0].CIFI_extra1 = 0;
+      headerMem->CIH_formats[0].CIFI_extra2 = 0;
+                                          /* size of objects must be put here */
+      headerMem->CIH_formatCount = 1;     /* we have at least one format.. */
+
+      VMUnlock(headerMemHandle);
+
+      /* Now register the transfer item with the Clipboard. This will actually
+       * put the transfer item and its header into the Clipboard. */
+
+      ClipboardRegisterItem(
+        BlockIDFromFileAndBlock(vmf, headerVMBlock),
+        TIF_NORMAL);
+
+      FoamDisplayNote(@Success);
+    }
+    else
+    {
+      VMFreeVMChain(vmf, VMCHAIN_MAKE_FROM_VM_BLOCK(dataVMBlock));
+      FoamDisplayError(@CantOpen);
+    }
+
+    ImageViewerCleanUp();
+}
