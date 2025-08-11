@@ -1,0 +1,2061 @@
+/********************************************************************
+ *
+ * PROJECT:     Little Operator Logo Assistant
+ * MODULE:      LOLA
+ * FILE:        LOLA.goc
+ *
+ *******************************************************************/
+
+/********************************************************************
+ *              Headers
+ *******************************************************************/
+@include <stdapp.goh>     /* Standard include file for GEOS applications. */
+@include <foam.goh>       /* Many Nokia UI definitions contained herein. */
+@include <viewer.goh>
+@include <mailbox.goh>
+@include <objects/clipbrd.goh>
+@include <Internal/Resp/smdefine.goh>
+@include <Internal/Resp/smreg.goh>
+@include <Internal\Resp\imgctrl.goh>
+
+#include <Mailbox/vmtree.h>
+#include <initfile.h>
+#include <ansi/stdio.h>
+#include <ansi/stdlib.h>
+#include <ansi/string.h>
+
+@define PICTURE_SMS
+
+/* Different ways of sending a graphic */
+#define SEND_AS_GRAPHIC         1
+#define SEND_AS_LOGO            2
+@ifdef PICTURE_SMS
+#define SEND_AS_PICTURE_SMS     3
+@endif
+#define SEND_AS_DCS             4
+
+const GeodeToken LOLAToken = {"LOLA",16424};
+
+#define LOLAInfo "LOLA by Marcus Groeber, http://www.mgroeber.de"
+
+#define MAX_PICTURE_SMS_TEXT 124
+
+
+/********************************************************************
+ *              Class Definitions
+ *******************************************************************/
+@class LOLAProcessClass, GenProcessClass;
+  @message void MSG_LOLA_SEND();
+  @message void MSG_LOLA_CLOSE();
+  @message (GEN_ITEM_GROUP_STATUS_MSG) MSG_LOLA_SEND_AS_CHANGED;
+  @message (GEN_DYNAMIC_LIST_QUERY_MSG) MSG_LOLA_QUERY_NETWORK;
+@endc;
+
+@class LOLAOpenControlClass, FileOpenControlClass;
+@endc;
+
+@class LOLATextClass, GenTextClass;
+@endc;
+
+/********************************************************************
+ *              AppResource Resource
+ *******************************************************************/
+@start AppResource;
+
+@object FoamSubApplicationClass LOLAApp = {
+    GI_visMoniker = list { @LOLATextMoniker, @NokiaStatusMoniker,
+                           @NokiaListMoniker };
+    GI_comp = @LOLASendDialog, @ReceivedGraphicMessage,
+@ifdef PICTURE_SMS
+      @ReceivedPictureMessage,
+@endif
+      @FilenameEntryDialog;
+    FSAI_launcherApp = FA_EXTRAS_APP;
+    gcnList( MANUFACTURER_ID_GEOWORKS, GAGCNLT_WINDOWS ) = @LOLASendDialog;
+    gcnList( MANUFACTURER_ID_GEOWORKS, MGCNLT_ACTIVE_LIST ) = @LOLAFileBox;
+}
+
+@visMoniker LOLATextMoniker = "LOLA";
+
+@include "art/mkrNokiaStatus.goh"
+@include "art/mkrNokiaList.goh"
+
+@end AppResource;
+
+/********************************************************************
+ *              Interface Resource
+ *******************************************************************/
+@start Interface;
+
+/*
+========================================
+        "Send Options"
+========================================
+*/
+
+@object GenInteractionClass LOLASendDialog = {
+    GI_comp = @LOLASendBox, @LOLAFileOpen;
+    GII_visibility = GIV_DIALOG;
+}
+
+@chunk TCHAR LOLASendTitle[] = "LOLA Message Options";
+@object ComplexMonikerClass LOLASendBox = {
+    ComplexMoniker = GenInteractionClass;
+
+    CMI_topText = @LOLASendTitle;
+
+    GI_comp = @TopGroup,
+              @BottomGroup,
+              @ChangeTrigger, @SendTrigger, @PictureTrigger, @LOLACloseTrigger;
+
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_FIXED_SIZE = {FOAM_DEFAULT_COMPONENT_WIDTH, 0, 0};
+}
+
+@object GenInteractionClass TopGroup = {
+    GI_comp = @EditNumber, @SendAsGroup, @NetworkGroup, @DCSTextBox;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@object UnderlinedGenTextClass EditNumber = {
+    GI_visMoniker = "Number:";
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+    GTXI_maxLength = 25;
+    HINT_ALIGN_WITH_CENTERED_MONIKERS;
+    ATTR_GEN_TEXT_SET_OBJECT_ENABLED_WHEN_TEXT_EXISTS = @SendTrigger;
+}
+
+@object GenInteractionClass SendAsGroup = {
+    GI_visMoniker = "Send as:";
+    GI_comp = @SendAs;
+}
+@object GenItemGroupClass SendAs = {
+    GI_comp = @SendAsGraphic, @SendAsLogo, @SendAsDCS;
+    GIGI_selection = SEND_AS_GRAPHIC;
+    GIGI_destination = process;
+    ATTR_GEN_ITEM_GROUP_STATUS_MSG = MSG_LOLA_SEND_AS_CHANGED;
+}
+@object GenItemClass SendAsGraphic = {
+    GI_visMoniker = "Group Graphic";
+    GII_identifier = SEND_AS_GRAPHIC;
+}
+@object GenItemClass SendAsLogo = {
+    GI_visMoniker = "Operator Logo";
+    GII_identifier = SEND_AS_LOGO;
+}
+@object GenItemClass SendAsDCS = {
+    GI_visMoniker = "Special DCS";
+    GII_identifier = SEND_AS_DCS;
+}
+
+@object GenInteractionClass NetworkGroup = {
+    GI_visMoniker = "Network:";
+    GI_states = @default & ~GS_ENABLED;
+    GI_comp = @Network;
+}
+@chunk char NetworkTitle[] = "Country/Network";
+@object ComplexMonikerClass Network = {
+    ComplexMoniker = GenDynamicListClass;
+    CMI_topText = @NetworkTitle;
+
+    GIGI_selection = 0;
+    GIGI_destination = process;
+    GDLI_queryMsg = MSG_LOLA_QUERY_NETWORK;
+
+    HINT_FIXED_SIZE = {35 | SST_AVG_CHAR_WIDTHS, 0, 0};
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_ITEM_GROUP_MINIMIZE_SIZE;
+    HINT_ITEM_GROUP_SCROLLABLE;
+    HINT_ITEM_GROUP_DISPLAY_CURRENT_SELECTION;
+}
+
+@object GenInteractionClass DCSTextBox = {
+    GI_comp = @DCSText;
+    GI_visMoniker = "DCS:";
+    GI_states = @default & ~GS_USABLE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@object UnderlinedGenTextClass DCSText = {
+    GTXI_maxLength = 3;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_ALIGN_WITH_CENTERED_MONIKERS;
+}
+
+@object GenInteractionClass BottomGroup = {
+    GI_comp = @BottomBox, @Author;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+}
+
+@object GenInteractionClass BottomBox = {
+    GI_comp = @EditTextBox, @LogoBox;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_ORIENT_CHILDREN_HORIZONTALLY;
+}
+
+@object GenInteractionClass EditTextBox = {
+    GI_comp = @EditText;
+    GI_states = @default & ~GS_USABLE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+}
+
+@object LOLATextClass EditText = {
+    GTXI_maxLength = MAX_PICTURE_SMS_TEXT;
+    GTXI_attrs = @default | GTA_INIT_SCROLLING;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+}
+
+@object GenInteractionClass LogoBox = {
+    GI_comp = @LogoPreview;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+}
+
+@object GenGlyphClass LogoPreview = {
+}
+
+@object GenTextClass Author = {
+  GI_attrs = @default | GA_READ_ONLY;
+  GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+  GTXI_text = "by Marcus Gr\x9A\x62\x65r 1999, http://www.mgroeber.de";
+  ATTR_GEN_TEXT_DEFAULT_CHAR_ATTR =
+    DEF_CHAR_ATTR_FONT_SIZE(VTDF_URW_SANS, VTDS_10);
+  ATTR_GEN_TEXT_DEFAULT_PARA_ATTR = DEF_PARA_ATTR_RIGHT;
+  HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@object GenTriggerClass ChangeTrigger = {
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_CHANGE;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+}
+
+@object ComplexMonikerClass SendTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_SEND;
+    GI_states = @default & ~GS_ENABLED;
+    GTI_actionMsg = MSG_LOLA_SEND;
+    GTI_destination = process;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 1;
+}
+
+@chunk char PictureTriggerTitle[] = "Select\rPicture";
+@object ComplexMonikerClass PictureTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = @PictureTriggerTitle;
+    GTI_actionMsg = MSG_GEN_INTERACTION_INITIATE;
+    GTI_destination = @LOLAFileOpen;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 2;
+}
+
+@object ComplexMonikerClass LOLACloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @LOLAApp;
+
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+@chunk char LogoNotFound[] = "Logo file cannot be opened.";
+@chunk char SendError[] = "Cannot send message.";
+@chunk char SentLogo[] = "Message was placed in outbox.";
+@chunk char NoDataMsg[] = "File does not contain a data SMS message.";
+@chunk char UnknownPort[] = "Unknown type of Smart Message.";
+@chunk char MessageReceived[] = "Not all parts of this message have been opened yet.";
+@chunk char LogoOff[] = "(Turn off operator logo)";
+@chunk char FileNotFound[] = "One of the files OPERATOR.CSV or DEFAULT.NOL is missing. Please reinstall LOLA.";
+
+/*
+========================================
+        "Open Picture" dialog
+========================================
+*/
+
+@object GenInteractionClass LOLAFileOpen = {
+    GI_comp = @LOLAFileBox, @FileCloseTrigger;
+    GII_attrs = @default | GIA_NOT_USER_INITIATABLE | GIA_MODAL;
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_COMMAND;
+}
+
+@chunk TCHAR LOLAAboutTitle[] = "Select graphic (GIF, JPG, NGG, NOL"
+@ifdef PICTURE_SMS
+  ", Data SMS"
+@endif;
+  ")";
+
+@object LOLAOpenControlClass LOLAFileBox = {
+    CMI_topText = @LOLAAboutTitle;
+
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+
+    ATTR_GEN_CONTROL_PROHIBIT_UI = FOF_CREATE_NEW;
+    ATTR_GEN_CONTROL_REQUIRE_UI =
+      FOF_FULL_MENU & ~(FOF_COPY_TO_SOUNDS | FOF_CREATE_NEW);
+
+    HINT_FILE_OPEN_DONT_FILTER_DOCUMENT_SUB_DIRS;
+    ATTR_FILE_OPEN_INCLUDE_DIR = @IncludeDirList;
+    ATTR_FILE_OPEN_INCLUDE_FILE = @IncludeList;
+}
+
+@chunk word IncludeDirList[] = {
+    FDD_CREATED_TEXTS,
+    FDD_DOWNLOADED_FILES,
+@ifdef PICTURE_SMS
+    FDD_RECEIVED_SM,
+@endif
+    FDD_MMC
+};
+@chunk GeodeToken IncludeList[] = {
+@ifdef PICTURE_SMS
+    {SMS_RECEIVED_MESSAGE_TOKEN, MANUFACTURER_ID_GEOWORKS},
+@endif
+    {"", MANUFACTURER_ID_GEOWORKS}
+};
+
+@object GenTriggerClass FileCloseTrigger = {
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_DISMISS;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+}
+
+/*
+========================================
+        "Received graphic" notification
+========================================
+*/
+
+@object GenInteractionClass ReceivedGraphicMessage = {
+    GI_comp = @ReceivedGraphicTextBox,
+      @ReceivedGraphicAcceptTrigger, @ReceivedGraphicRejectTrigger;
+    GII_attrs = @default | GIA_INITIATED_VIA_USER_DO_DIALOG |
+      GIA_NOT_USER_INITIATABLE | GIA_MODAL;
+    GII_visibility = GIV_POPUP;
+    GII_type = GIT_MULTIPLE_RESPONSE;
+}
+
+@chunk char ReceivedGraphicTitle[] = "Received Group Graphic";
+@object ComplexMonikerClass ReceivedGraphicTextBox = {
+    ComplexMoniker = GenInteractionClass;
+
+    CMI_topText = @ReceivedGraphicTitle;
+
+    GI_comp = @ReceivedGraphicPreviewBox;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+}
+
+@object GenInteractionClass ReceivedGraphicPreviewBox = {
+    GI_comp = @ReceivedGraphicPreview;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+}
+
+@object GenGlyphClass ReceivedGraphicPreview = {
+}
+
+@object GenTriggerClass ReceivedGraphicAcceptTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    GI_visMoniker = "Save";
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_YES;
+    HINT_SEEK_SLOT = 0;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+}
+
+@object GenTriggerClass ReceivedGraphicRejectTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    GI_visMoniker = "Discard";
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_NO;
+    HINT_SEEK_SLOT = 3;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+}
+
+/*
+============================================
+        "Received picture SMS" notification
+============================================
+*/
+@ifdef PICTURE_SMS
+@object GenInteractionClass ReceivedPictureMessage = {
+    GI_comp = @ReceivedPictureTextBox,
+      @ReceivedPictureAcceptTrigger, @ReceivedPictureRejectTrigger;
+    GII_attrs = @default | GIA_INITIATED_VIA_USER_DO_DIALOG |
+      GIA_NOT_USER_INITIATABLE | GIA_MODAL;
+    GII_visibility = GIV_POPUP;
+    GII_type = GIT_NOTIFICATION;
+}
+
+@chunk char ReceivedPictureTitle[] = "Received Picture SMS";
+@object ComplexMonikerClass ReceivedPictureTextBox = {
+    ComplexMoniker = GenInteractionClass;
+
+    CMI_topText = @ReceivedPictureTitle;
+
+    GI_comp = @ReceivedPictureText, @ReceivedPicturePreviewBox;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_ORIENT_CHILDREN_HORIZONTALLY;
+}
+
+@object GenTextClass ReceivedPictureText = {
+    GI_attrs = @default | GA_READ_ONLY | GA_TARGETABLE;
+    GTXI_attrs = @default | GTA_INIT_SCROLLING;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_FIXED_SIZE = {200 | SST_PIXELS, 0, 0};
+}
+
+@object GenInteractionClass ReceivedPicturePreviewBox = {
+    GI_comp = @ReceivedPicturePreview;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+}
+
+@object GenGlyphClass ReceivedPicturePreview = {
+}
+
+@object GenTriggerClass ReceivedPictureAcceptTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    GI_visMoniker = "Save";
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_YES;
+    HINT_SEEK_SLOT = 0;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+}
+
+@object GenTriggerClass ReceivedPictureRejectTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    GI_visMoniker = "Discard";
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_NO;
+    HINT_SEEK_SLOT = 3;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_REPLY_BAR;
+}
+@endif
+
+/*
+==============================
+        Filename dialog
+==============================
+*/
+
+@object GenInteractionClass FilenameEntryDialog = {
+    GII_visibility = GIV_POPUP;
+    GII_type = GIT_COMMAND;
+    GII_attrs = @default | GIA_MODAL | GIA_INITIATED_VIA_USER_DO_DIALOG;
+    GI_comp  = @EntryOKButton, @EntryBox;
+    HINT_SIZE_WINDOW_AS_DESIRED;
+    HINT_FIXED_SIZE = {SST_PIXELS | 250, 0, 0};
+}
+
+@object ComplexMonikerClass EntryOKButton = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_OK;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = IC_APPLY;
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 0;
+}
+
+@chunk TCHAR EntryTitle[] = "Enter filename to save as";
+@object ComplexMonikerClass EntryBox = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @EntryTitle;
+    CMI_fontSize = FOAM_NORMAL_FONT_SIZE;
+    CMI_iconBitmap = CMB_INPUT_TITLE_ICON;
+    GI_comp = @EntryGreyFrame;
+
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_CENTER_CHILDREN_VERTICALLY;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+}
+
+@object GreyFrameClass EntryGreyFrame = {
+    GI_comp = @EntryTextField, @EntryExtension;
+    HINT_ORIENT_CHILDREN_HORIZONTALLY;
+}
+
+@object GenTextClass EntryTextField = {
+    GTXI_maxLength = 8;
+    GTXI_attrs = @default | GTA_SINGLE_LINE_TEXT;
+    ATTR_GEN_TEXT_ALPHA_NUMERIC;
+    HINT_FIXED_SIZE = {8 | SST_WIDE_CHAR_WIDTHS, 0, 0};
+}
+
+@object GenGlyphClass EntryExtension = {
+    GI_visMoniker = ".NGG";
+}
+
+@chunk char CannotWrite[] = "Cannot save to this file.";
+@chunk char FileExists[] = "A file with this name already exists. "
+                           "Do you want to overwrite it?";
+@chunk char BadLogo[] = "A Group Graphic message was received, but the image "
+                        "cannot be displayed and will be discarded.";
+@ifdef PICTURE_SMS
+@chunk char BadPicture[] = "A Picture Message was received, but it "
+                           "cannot be displayed and will be discarded.";
+@endif
+
+@end Interface;
+
+
+/********************************************************************
+ *              Bitmap utility routines
+ *******************************************************************/
+
+Boolean TestFileExists(char *fname)
+{
+    FileHandle fh;
+    Boolean ret;
+
+    fh = FileOpen(fname, FILE_ACCESS_R | FILE_DENY_R);
+    if(fh)                              // Attempt to open file
+    {
+      FileClose(fh, FALSE);
+      ret = TRUE;                       // File exists
+    }
+    else
+      ret = FALSE;                      // File doesn't exist
+
+    return ret;
+}
+
+void SetBitmapMoniker(optr obj, Bitmap *bmp)
+{
+    MemHandle mh;
+    GStateHandle gs;
+    ChunkHandle ch;
+
+    /* Create a GString with the bitmap */
+    mh = MemAllocLMem(LMEM_TYPE_GENERAL, 0);
+    gs = GrCreateGString(mh, GST_CHUNK, &ch);
+    GrApplyScale(gs, MakeWWFixed(2), MakeWWFixed(2));
+    GrDrawBitmap(gs, 0, 0, bmp, NULL);
+    GrEndGString(gs);
+
+    /* Set Logo preview object */
+    @call obj::MSG_GEN_REPLACE_VIS_MONIKER(VUM_DELAYED_VIA_APP_QUEUE,
+      bmp->B_height*2, bmp->B_width*2, 0, VMDT_GSTRING, VMST_OPTR,
+      ConstructOptr(mh, ch));
+
+    MemFree(mh);                        // Don't need the GString any longer
+}
+
+typedef struct {                        /* Header of an OTA bitmap */
+  byte flags,
+       width,
+       height,
+       planes;
+} OTABitmapHeader;
+
+byte *GeosBitmapToOTA(Bitmap *pic, byte *head, word headLen, word *size)
+{
+    byte *p, *src, *otapic, by;
+    OTABitmapHeader ota;
+    word x,y,i;
+    word bmpsize;
+
+    /* Check for unsupported bitmaps */
+    if(pic->B_compact != BMC_UNCOMPACTED || pic->B_type != BMF_MONO)
+      return NULL;                      /* Cannot convert */
+
+    bmpsize = (pic->B_width * pic->B_height + 7) / 8;
+    *size = (head? headLen : 0) + sizeof(OTABitmapHeader) + bmpsize;
+
+    p = otapic = malloc(*size);         /* Allocate space for bitmap */
+    if(head)
+    {
+      memcpy(p, head, headLen);         /* Prepend header, if any */
+      p += headLen;                     /* Advance past header */
+    }
+
+    ota.flags = 0;                      /* No animation, no gadgets... */
+    ota.width = pic->B_width;           /* Dimensions of picture */
+    ota.height = pic->B_height;
+    ota.planes = 1;                     /* Only one plane is supported */
+    memcpy(p, &ota, sizeof(ota));       /* Prepend OTA bitmap header */
+    p += sizeof(ota);                   /* Advance past OTA header */
+    memset(p, 0, bmpsize);
+
+    i = 0;                              /* Counter for OTA bitmap data */
+    src = (byte *)pic + sizeof(Bitmap); /* Pointer to Geos bitmap data */
+
+    for(y=0; y<pic->B_height; y++)
+      for(x=0; x<pic->B_width; x++)
+      {
+        if(x%8==0)                      /* Get new byte every 8 pixels */
+          by = *(src++);
+        else
+          by <<= 1;                     /* Just get a new bit into position */
+
+        p[i/8] <<= 1;                   /* Make room for bit in OTA bitmap */
+        if(by & 0x80)                   /* Copy "1" bits */
+          p[i/8] |= 1;
+
+        i++;                            /* Next bit in OTA bitmap */
+      }
+
+    if(i%8)                             /* Fill OTA bitmap to byte boundary */
+      p[i/8] <<= (8-i%8);
+
+    return otapic;
+}
+
+Bitmap *OTABitmapToGeos(byte *ota)
+{
+    word x,i,j,width, height;
+    Bitmap *bmp;
+    byte *data, *src;
+    word bmpsize;
+
+    if(((OTABitmapHeader *)ota)->flags ||
+       ((OTABitmapHeader *)ota)->planes != 1)
+      return NULL;                      // Cannot handle unusual bitmap formats
+
+    width = ((OTABitmapHeader *)ota)->width;
+    height = ((OTABitmapHeader *)ota)->height;
+                                        // Get bitmap dimensions
+
+    bmpsize = sizeof(Bitmap) + (width+7)/8*height;
+    bmp = malloc(bmpsize);              // Allocate space for bitmap
+
+    bmp->B_width = width;               // Set up bitmap header
+    bmp->B_height = height;
+    bmp->B_compact = BMC_UNCOMPACTED;
+    bmp->B_type = BMF_MONO;
+
+    data = (byte *)bmp + sizeof(Bitmap);
+    src = ota + sizeof(OTABitmapHeader);
+    memset(data, 0, bmpsize);           // Preset bitmap data
+
+    x = 0;
+    j = 0;                              // Byte index into Geos bitmap
+    for(i=0; i<width*height; i++)
+    {
+      data[j] <<= 1;                    // Add one byte from input stream
+      data[j] |= ((src[i/8]<<(i%8)) & 0x80)? 1:0;
+      x++;                              // Horizontal position in Geos bitmap
+      if(x%8==0)                        // Advance Geos pointer every 8 bits
+        j++;
+      if(x>=width)                      // End of line?
+      {
+        if(x%8)                         // Fill up rest of Geos line
+          data[j++] <<= 8-x%8;
+        x = 0;                          // Back to beginning of line
+      }
+    }
+
+    return bmp;
+}
+
+/*
+ * Command header of NOL and NGG files.
+ */
+typedef struct {
+  word width;
+  word height;
+  word x1;              // unknown, typically 1
+  word x2;              // unknown, typically 1
+  word x3;              // unknown, random
+} KesslerHead;
+
+/*
+ * Complete structure of an NGG file header.
+ */
+typedef struct {
+  long magic;
+  word ver;
+  KesslerHead hd;
+} NGGHead;
+
+#define NOL_MAGIC               0x004C4F4E
+#define NGG_MAGIC               0x0047474E
+#define KESSLER_VERSION         1
+
+Bitmap *LoadKesslerBitmap(char *logoFile, word *mcc, word *mnc)
+{
+    FILE *f;
+    long magic = 0;
+    word ver = 0;
+    KesslerHead head;
+    byte *data;
+    word bmpsize,x,i,j;
+
+    f = fopen(logoFile, "r");           // Open logo file
+    if(!f)                              // Can't? Error...
+      return NULL;
+
+    fread(&magic, sizeof(magic), 1, f);
+    fread(&ver, sizeof(ver), 1, f);
+
+    if((magic != NOL_MAGIC && magic != NGG_MAGIC) || ver != KESSLER_VERSION)
+    {
+      fclose(f);
+      return NULL;                      // Refuse to load unknown file
+    }
+
+    if(magic==NOL_MAGIC)                // Load MCC/MNC from operator logos
+    {
+      fread(mcc, sizeof(word), 1, f);
+      fread(mnc, sizeof(word), 1, f);
+    }
+    else
+      *mcc = *mnc = 0;                  // No MCC/MNC known for group graphics
+
+    if(fread(&head, sizeof(head), 1, f) != 1)
+    {                                   // Get bitmap header
+      fclose(f);
+      return NULL;
+    }
+
+    bmpsize = (head.width+7)/8 * head.height;
+                                        // Size of Geos bitmap data
+    data = malloc(bmpsize+sizeof(Bitmap));
+                                        // Allocate space for bitmap
+
+
+    ((Bitmap *)data)->B_width = head.width;
+    ((Bitmap *)data)->B_height = head.height;
+    ((Bitmap *)data)->B_compact = BMC_UNCOMPACTED;
+    ((Bitmap *)data)->B_type = BMF_MONO;
+
+    memset(data+sizeof(Bitmap), 0, bmpsize);
+    x = 0;
+    j = sizeof(Bitmap);                 // Byte index into Geos bitmap
+    for(i=0; i<head.width*head.height; i++)
+    {
+      data[j] <<= 1;                    // Add one byte from input stream
+      data[j] |= (fgetc(f)!='0')?1:0;
+      x++;                              // Horizontal position in Geos bitmap
+      if(x%8==0)                        // Advance Geos pointer every 8 bits
+        j++;
+      if(x>=head.width)                 // End of line?
+      {
+        if(x%8)                         // Fill up rest of Geos line
+          data[j++] <<= 8-x%8;
+        x = 0;                          // Back to beginning of line
+      }
+    }
+
+    fclose(f);
+
+    return data;                        // Return bitmap
+}
+
+Bitmap *LoadGIFJPEG(DocumentInfo *doc)
+{
+    VMFileHandle vmf;
+    VMBlockHandle vmb;
+    GStateHandle gs;
+    word width, height, zoom, bmpsize, y, size, linelen;
+    byte *data = NULL, *line;
+    ImageViewerDrawStatus ds;
+
+    vmf = ClipboardGetClipboardFile();
+    vmb = GrCreateBitmap(BMF_MONO, 72, 28, vmf, NullHandle, &gs);
+    ds = ImageViewerDrawBitmapToGState(doc, gs, &height, &width, &zoom);
+
+    if(ds == IVDS_OK)
+    {
+      width = 72;
+@ifdef PICTURE_SMS
+      height = (height<=14)?14:28;
+@else
+      height = 14;
+@endif
+
+      linelen = (width+7)/8;
+      bmpsize = linelen * height;       // Size of Geos bitmap data
+      data = malloc(bmpsize+sizeof(Bitmap));
+                                        // Allocate space for bitmap
+
+      ((Bitmap *)data)->B_width = width;
+      ((Bitmap *)data)->B_height = height;
+      ((Bitmap *)data)->B_compact = BMC_UNCOMPACTED;
+      ((Bitmap *)data)->B_type = BMF_MONO;
+
+      for(y=0; y<height; y++)
+      {
+        HugeArrayLock(vmf, vmb, y, &line, &size);
+        memcpy(data+sizeof(Bitmap)+linelen*y, line, linelen);
+        HugeArrayUnlock(line);
+      }
+    }
+
+    ImageViewerCleanUp();
+    GrDestroyBitmap(gs, BMD_KILL_DATA);
+
+    return (Bitmap *)data;
+}
+
+Boolean SaveKesslerBitmap(char *fname, Bitmap *bmp)
+{
+    FILE *f;
+    NGGHead head;
+    byte by, *src;
+    word x,y;
+
+    f = fopen(fname, "wV");             // Open logo file
+    if(!f)                              // Can't? Error...
+      return TRUE;
+
+    head.magic = NGG_MAGIC;             // Initialize header
+    head.ver = KESSLER_VERSION;
+    head.hd.width = bmp->B_width;
+    head.hd.height = bmp->B_height;
+    head.hd.x1 = 1;
+    head.hd.x2 = 1;
+    head.hd.x3 = 0;
+
+    fwrite(&head, sizeof(head), 1, f);  // Write header to file
+
+    src = (byte *)bmp + sizeof(Bitmap); // Pointer to Geos bitmap data
+
+    for(y=0; y<head.hd.height; y++)
+      for(x=0; x<head.hd.width; x++)
+      {
+        if(x%8==0)                      /* Get new byte every 8 pixels */
+          by = *(src++);
+        else
+          by <<= 1;                     /* Just get a new bit into position */
+
+        if(by & 0x80)                   /* Write out bits in sequence */
+          fwrite("1", 1, 1, f);
+        else
+          fwrite("0", 1, 1, f);
+      }
+
+    fwrite(LOLAInfo, sizeof(LOLAInfo)-1, 1, f);
+
+    fclose(f);                          // Done
+    return FALSE;                       // Success
+}
+
+
+/********************************************************************
+ *              SMS utility routines
+ *******************************************************************/
+
+#define BYTESWAP(x) (((x)>>8) | ((x)<<8))
+
+#define SMS_PORT_OPERATOR_LOGO          0x1582
+#define SMS_PORT_GROUP_GRAPHIC          0x1583
+#define SMS_PORT_PICTURE_MESSAGE        0x158A
+
+MailboxError SendDCSMessage(TCHAR *addr, byte dcs, char *text)
+{
+    VMFileHandle               vmFile;
+    VMBlockHandle              vmBlock;
+    VMFileHandle               smsOptionsFile;
+    MemHandle                  mh;
+    VMTreeAppRef               vmRef;
+    word                       vmStatus;
+    DBGroupAndItem             dbgi;
+    SMSendingOptions *         ptrSMSOptions;
+    MailboxRegisterMessageArgs registerArgs;
+    MailboxTransAddr           addressList;
+    MailboxError               mailboxError;
+    MailboxMessage             msgToken;
+    word                       sizeOfBuffer;
+    byte                       *p;
+    word                       msglen;
+
+      /*
+       * Obtain the handle of a writable VM file from the Mailbox
+       * library. Passing one means that we're later adding one block
+       * to this file, since SMS messages are so short.
+       */
+    vmFile = MailboxGetVMFile(1, &vmStatus);
+
+EC( ECVMCheckVMFile(vmFile); )
+
+    msglen = strlen(text);
+      /*
+       * Allocate a VM block and store the message within it.
+       */
+    vmBlock = VMAlloc(vmFile, sizeof(VMChainLink) + msglen, 0);
+EC( ECVMCheckVMBlockHandle(vmFile, vmBlock); )
+    p = VMLock(vmFile, vmBlock, &mh);
+    p += sizeof(VMChainLink);           // Leave room for chain link
+EC( ECCheckBounds(p); )
+
+    memcpy(p, text, msglen);            // Payload
+
+    VMDirty(mh);
+    VMUnlock(mh);
+
+      /*
+       * Put this VM file info in a VMTreeAppRef structure for later
+       * use by the mailbox library.
+       */
+    vmRef.VMTAR_vmChain = VMCHAIN_MAKE_FROM_VM_BLOCK(vmBlock);
+    vmRef.VMTAR_vmFile = vmFile;
+
+      /*
+       * Store the SMSendingOptions in a DBItem and place it in the
+       * mailbox admin file.
+       */
+    smsOptionsFile = MailboxGetAdminFile();
+EC( ECVMCheckVMFile(smsOptionsFile); )
+    dbgi = DBAllocUngrouped(smsOptionsFile, sizeof(SMSendingOptions ));
+    ptrSMSOptions = (SMSendingOptions*)DBLockUngrouped(smsOptionsFile, dbgi);
+EC( ECCheckBounds( ptrSMSOptions ); )
+
+    ptrSMSOptions->SMSO_replyPath = SMRP_NO;
+    ptrSMSOptions->SMSO_validityPeriod = SMVP_ONE_DAY;
+    ptrSMSOptions->SMSO_messageConversion = SMMC_NORMAL | SMS_DO_EIGHT_BIT_MASK;;
+
+      /*
+       * Read the service center number from the .ini file.
+       */
+    InitFileReadStringBuffer(SMS_CATEGORY, SMS_OPTIONS_SC_NUMBER,
+      ptrSMSOptions->SMSO_scAddress, MAX_ADDRESS_SIZE, &sizeOfBuffer);
+
+    ptrSMSOptions->SMSO_dataCodingScheme = dcs;
+    ptrSMSOptions->SMSO_userDataLength = msglen;
+    ptrSMSOptions->SMSO_userDataHeader = FALSE;
+
+    DBDirty( ptrSMSOptions );
+    DBUnlock( ptrSMSOptions );
+
+      /*
+       * Fill in the MailboxRegisterMessageArgs structure.
+       */
+
+    /* storage type and format */
+    registerArgs.MRA_bodyStorage.MS_id = GMSID_VM_TREE;
+    registerArgs.MRA_bodyStorage.MS_manuf = MANUFACTURER_ID_GEOWORKS;
+    registerArgs.MRA_bodyFormat.MDF_id = GMDFID_SHORT_MESSAGE;
+    registerArgs.MRA_bodyFormat.MDF_manuf = MANUFACTURER_ID_GEOWORKS;
+
+    /* SMS message body information */
+    registerArgs.MRA_bodyRef = &vmRef;
+    registerArgs.MRA_bodyRefLen = sizeof(VMTreeAppRef);
+
+    /* Transport driver information */
+    registerArgs.MRA_transport.MT_id = NEC(GMTID_SM) EC(GMTID_LOCAL);
+    registerArgs.MRA_transport.MT_manuf = MANUFACTURER_ID_GEOWORKS;
+    registerArgs.MRA_transOption = 0;
+
+    addressList.MTA_transAddr = addr;
+    addressList.MTA_transAddrLen = strlen(addr);
+    addressList.MTA_userTransAddr = addr;
+
+    registerArgs.MRA_transAddrs = &addressList;
+    registerArgs.MRA_numTransAddrs = 1;
+
+      /*
+       * Indicate the DBItem data used by the transport driver.
+       */
+    registerArgs.MRA_transData = dbgi;
+
+      /*
+       * Pass the MailboxMessageFlags. Typically, the VM file
+       * containing the SMS message is deleted after delivery,
+       * so just use the flag MMF_DELETE_BODY_AFTER_TRANSMISSION.
+       */
+    registerArgs.MRA_flags = MMF_DELETE_BODY_AFTER_TRANSMISSION;
+
+      /*
+       * Specify the string to display in the outbox about this
+       * SMS message.
+       */
+    registerArgs.MRA_summary = "LOLA DCS message";
+
+    /* Destination: self... */
+    registerArgs.MRA_destApp = LOLAToken;
+
+      /*
+       * Specify when to send the message & how long to keep trying.
+       */
+    registerArgs.MRA_startBound = MAILBOX_NOW;
+    registerArgs.MRA_endBound = MAILBOX_ETERNITY;
+
+      /*
+       * The message is now completely specified, so register it
+       * with the system.
+       */
+    mailboxError = MailboxRegisterMessage(&registerArgs, &msgToken);
+
+      /*
+       * Notify the mailbox library we're done with the file opened.
+       * It can then free it when the SMS message is delivered.
+       */
+    MailboxDoneWithVMFile( vmFile );
+
+    return mailboxError;
+}
+
+MailboxError SendSmartMessage(TCHAR *addr, word port, byte *data, word len)
+{
+  VMFileHandle               vmFile;
+  VMBlockHandle              vmBlock;
+  VMFileHandle               smsOptionsFile;
+  MemHandle                  mh;
+  VMTreeAppRef               vmRef;
+  word                       vmStatus;
+  DBGroupAndItem             dbgi;
+  SMSendingOptions *         ptrSMSOptions;
+  MailboxRegisterMessageArgs registerArgs;
+  MailboxTransAddr           addressList;
+  MailboxError               mailboxError;
+  MailboxMessage             msgToken;
+  word                       sizeOfBuffer;
+  byte                       *p;
+  word                       msglen, headlen, datalen;
+  word                       dataofs, dgramRef;
+  word                       part, parts;
+  char                       summary[40];
+
+
+    /*
+     * Obtain the handle of a writable VM file from the Mailbox
+     * library. Passing one means that we're later adding one block
+     * to this file, since SMS messages are so short.
+     */
+  vmFile = MailboxGetVMFile(1, &vmStatus);
+
+EC( ECVMCheckVMFile(vmFile); )
+
+  if(len<=SMS_GSM_MAX_8BIT_USER_DATA-7)
+  {
+    headlen = 7;
+    parts = 1;
+  }
+  else
+  {
+    headlen = 12;
+
+    /* Generate a new datagram reference number */
+    dgramRef = 0;
+    InitFileReadInteger("LOLA", "datagram", &dgramRef);
+    dgramRef++;
+    if(dgramRef>255)
+      dgramRef = 1;
+    InitFileWriteInteger("LOLA", "datagram", dgramRef);
+
+    parts = (len + (SMS_GSM_MAX_8BIT_USER_DATA-headlen-1))/
+      (SMS_GSM_MAX_8BIT_USER_DATA-headlen);
+  }
+
+  dataofs = 0;                          // Start at the beginning...
+  for(part=0; part<parts; part++)
+  {
+    datalen = len - dataofs;            // Remaining amount of data
+    if(datalen+headlen>SMS_GSM_MAX_8BIT_USER_DATA)
+      datalen = SMS_GSM_MAX_8BIT_USER_DATA - headlen;
+
+    msglen = headlen + datalen;         // UDH plus payload
+
+      /*
+       * Allocate a VM block and store the message within it.
+       */
+    vmBlock = VMAlloc(vmFile, sizeof(VMChainLink) + msglen, 0);
+EC( ECVMCheckVMBlockHandle(vmFile, vmBlock); )
+    p = VMLock(vmFile, vmBlock, &mh);
+    p += sizeof(VMChainLink);           // Leave room for chain link
+EC( ECCheckBounds(p); )
+
+      /*
+       * Create UDH and add payload
+       */
+    *p++ = headlen - 1;                 // Size of UDH
+    if(parts>1)                         // Add multi-part header
+    {
+      *p++ = 0;                         // Short fragment identifier
+      *p++ = 3;                         // Size of fragment identifier data
+      *p++ = (byte)dgramRef;            // Datagram number
+      *p++ = (byte)parts;               // Total number of fragments
+      *p++ = (byte)(part+1);            // Number of this fragment in sequence
+    }
+    *p++ = 5;                           // Port numbers
+    *p++ = 4;                           // Size of port number data
+    *p++ = (byte)(port>>8);             // Source port
+    *p++ = (byte)port;
+    *p++ = 0;                           // Destination port
+    *p++ = 0;
+    memcpy(p, data+dataofs, datalen);   // Payload
+    dataofs += datalen;                 // Advance pointer into message
+
+    VMDirty(mh);
+    VMUnlock(mh);
+
+      /*
+       * Put this VM file info in a VMTreeAppRef structure for later
+       * use by the mailbox library.
+       */
+    vmRef.VMTAR_vmChain = VMCHAIN_MAKE_FROM_VM_BLOCK(vmBlock);
+    vmRef.VMTAR_vmFile = vmFile;
+
+      /*
+       * Store the SMSendingOptions in a DBItem and place it in the
+       * mailbox admin file.
+       */
+    smsOptionsFile = MailboxGetAdminFile();
+EC( ECVMCheckVMFile(smsOptionsFile); )
+    dbgi = DBAllocUngrouped(smsOptionsFile, sizeof(SMSendingOptions ));
+    ptrSMSOptions = (SMSendingOptions*)DBLockUngrouped(smsOptionsFile, dbgi);
+EC( ECCheckBounds( ptrSMSOptions ); )
+
+    ptrSMSOptions->SMSO_replyPath = SMRP_NO;
+    ptrSMSOptions->SMSO_validityPeriod = SMVP_ONE_DAY;
+    ptrSMSOptions->SMSO_messageConversion = SMMC_NORMAL | SMS_DO_EIGHT_BIT_MASK;
+
+      /*
+       * Read the service center number from the .ini file.
+       */
+    InitFileReadStringBuffer(SMS_CATEGORY, SMS_OPTIONS_SC_NUMBER,
+      ptrSMSOptions->SMSO_scAddress, MAX_ADDRESS_SIZE, &sizeOfBuffer);
+
+    ptrSMSOptions->SMSO_dataCodingScheme =
+      (SMDCS_EIGHT_BIT_MASK << SMDCS_EIGHT_BIT_OFFSET) | 1;
+    ptrSMSOptions->SMSO_userDataLength = msglen;
+    ptrSMSOptions->SMSO_userDataHeader = TRUE;
+
+    DBDirty( ptrSMSOptions );
+    DBUnlock( ptrSMSOptions );
+
+      /*
+       * Fill in the MailboxRegisterMessageArgs structure.
+       */
+
+    /* storage type and format */
+    registerArgs.MRA_bodyStorage.MS_id = GMSID_VM_TREE;
+    registerArgs.MRA_bodyStorage.MS_manuf = MANUFACTURER_ID_GEOWORKS;
+    registerArgs.MRA_bodyFormat.MDF_id = GMDFID_SHORT_MESSAGE;
+    registerArgs.MRA_bodyFormat.MDF_manuf = MANUFACTURER_ID_GEOWORKS;
+
+    /* SMS message body information */
+    registerArgs.MRA_bodyRef = &vmRef;
+    registerArgs.MRA_bodyRefLen = sizeof(VMTreeAppRef);
+
+    /* Transport driver information */
+    registerArgs.MRA_transport.MT_id = NEC(GMTID_SM) EC(GMTID_LOCAL);
+    registerArgs.MRA_transport.MT_manuf = MANUFACTURER_ID_GEOWORKS;
+    registerArgs.MRA_transOption = 0;
+
+    addressList.MTA_transAddr = addr;
+    addressList.MTA_transAddrLen = strlen(addr);
+    addressList.MTA_userTransAddr = addr;
+
+    registerArgs.MRA_transAddrs = &addressList;
+    registerArgs.MRA_numTransAddrs = 1;
+
+      /*
+       * Indicate the DBItem data used by the transport driver.
+       */
+    registerArgs.MRA_transData = dbgi;
+
+      /*
+       * Pass the MailboxMessageFlags. Typically, the VM file
+       * containing the SMS message is deleted after delivery,
+       * so just use the flag MMF_DELETE_BODY_AFTER_TRANSMISSION.
+       */
+    registerArgs.MRA_flags = MMF_DELETE_BODY_AFTER_TRANSMISSION;
+
+      /*
+       * Specify the string to display in the outbox about this
+       * SMS message.
+       */
+    sprintf(summary, "LOLA graphic (%d/%d)", part, parts);
+    registerArgs.MRA_summary = summary;
+
+    /* Destination: self... */
+    registerArgs.MRA_destApp = LOLAToken;
+
+      /*
+       * Specify when to send the message & how long to keep trying.
+       */
+    registerArgs.MRA_startBound = MAILBOX_NOW;
+    registerArgs.MRA_endBound = MAILBOX_ETERNITY;
+
+      /*
+       * The message is now completely specified, so register it
+       * with the system.
+       */
+    mailboxError = MailboxRegisterMessage(&registerArgs, &msgToken);
+
+    if(mailboxError != ME_SUCCESS)      // Break if an error occured
+      break;
+  }
+
+    /*
+     * Notify the mailbox library we're done with the file opened.
+     * It can then free it when the SMS message is delivered.
+     */
+  MailboxDoneWithVMFile( vmFile );
+
+  return mailboxError;
+} /* MSG_SMSSAMP_SEND_MSG */
+
+typedef struct {
+  word destPort;
+  word srcPort;
+  word dgramRef;
+  word segments;
+  word sequence;
+} UDHdata;
+
+byte *DecodeUDH(byte *data, word datalen, UDHdata *udh, word *len)
+{
+    word i, udhlen;
+
+    memset(udh, 0, sizeof(UDHdata));    // Initialize UDH information
+
+    udhlen = *data;                     // Message starts with UDH length
+    i = 1;                              // Start at first byte after that
+    while(i<=udhlen && i<datalen)       // Still data...
+    {
+      switch(data[i])                   // Distinguish UDH information elements
+      {
+        case 0x00:                      // Short fragment identifier
+          udh->dgramRef = data[i+2];    // Get information body
+          udh->segments = data[i+3];
+          udh->sequence = data[i+4];
+          break;
+        case 0x05:                      // Port number
+          udh->destPort = BYTESWAP(*(word *)(data+i+2));
+          udh->srcPort = BYTESWAP(*(word *)(data+i+4));
+          break;
+        case 0x08:                      // Long fragment identifier
+          udh->dgramRef = BYTESWAP(*(word *)(data+i+2));
+          udh->segments = data[i+4];
+          udh->sequence = data[i+5];
+          break;
+      }
+      i += data[i+1]+2;                 // Skip over element
+    }
+
+    *len = datalen-udhlen-1;            // Calculate length of body data
+    return data+udhlen+1;               // Return pointer to body data
+}
+
+typedef struct {
+  LMemBlockHeader       FAH_meta;
+  ChunkHandle           FAH_array;      // Fragement array
+  word                  FAH_dgramRef;   // Datagram number of message
+} FragmentArrayHeader;
+
+MemHandle queue = NullHandle;
+
+byte *ReceiveSmartMessage(byte *data, word datalen, word *port, word *len)
+{
+    UDHdata udh;
+    word bodylen;
+    byte *frag, *body, *ret = NULL;
+    FragmentArrayHeader *fah;
+    word i, size, total;
+    ChunkHandle chunk;
+
+    body = DecodeUDH(data, datalen, &udh, &bodylen);
+
+    if(udh.segments<2)                  // Unfragmented message
+    {
+      ret = malloc(bodylen);            // Allocate buffer for message body
+      memcpy(ret, body, bodylen);       // Copy message body
+      *port = udh.destPort;             // Return destination port number
+      *len = bodylen;                   // Return length of body
+    }
+    else                                // Fragmented message
+    {
+      if(queue)                         // Check if we can use existing queue
+      {
+        fah = MemLock(queue);
+        if(fah->FAH_dgramRef == udh.dgramRef ||
+           ChunkArrayGetCountHandles(queue, fah->FAH_array) != udh.segments)
+        {
+          MemUnlock(queue);
+        }
+        else
+        {
+          MemFree(queue);               // Destroy queue if different message
+          queue = NullOptr;
+        }
+      }
+
+      if(!queue)                        // No queue available? Create new one
+      {
+        queue = MemAllocLMem(LMEM_TYPE_GENERAL, sizeof(FragmentArrayHeader));
+        fah = MemLock(queue);
+        fah->FAH_dgramRef = udh.dgramRef;
+        fah->FAH_array = chunk = ChunkArrayCreate(queue, 0, 0, 0);
+        for(i=0; i<udh.segments; i++)   // Append empty elements for segments
+          ChunkArrayAppendHandles(queue, chunk, 0);
+      }
+      else
+      {
+        fah = MemLock(queue);
+        chunk = fah->FAH_array;
+      }
+
+      ChunkArrayElementResizeHandles(queue, chunk, udh.sequence-1, bodylen);
+      frag = ChunkArrayElementToPtrHandles(queue, chunk, udh.sequence-1, &size);
+      memcpy(frag, body, bodylen);      // Store fragment
+
+      total = 0;
+      for(i=0; i<udh.segments; i++)     // See if we're still missing data
+      {
+        ChunkArrayElementToPtrHandles(queue, chunk, i, &size);
+        if(size==NullHandle)            // Found missing fragment?
+          break;
+        total += size;                  // Add up fragment sizes
+      }
+
+      if(i==udh.segments)               // All fragments present: we're done
+      {
+        ret = malloc(total);            // Allocate space for complete message
+        total = 0;
+        for(i=0; i<udh.segments; i++)   // Assemble fragments
+        {
+          frag = ChunkArrayElementToPtrHandles(queue, chunk, i, &size);
+          memcpy(ret+total, frag, size);
+          total += size;                // Put framents in sequence
+        }
+        *port = udh.destPort;           // Return destination port number
+        *len = total;                   // Return length of body
+
+        MemFree(queue);                 // Done with message queue
+        queue = NullHandle;
+      }
+      else
+        MemUnlock(queue);               // Queue still has to hang around...
+    }
+
+    return ret;
+}
+
+void SendLogo(char *addr, Bitmap *pic, char *text, word type,
+  word mcc, word mnc)
+{
+    struct {                            // Header of an Operator Logo
+      word mcc;
+      byte mnc;
+    } logoHead = {0xFFFF,0};
+    byte *msg = NULL;
+    word size, port;
+    int i;
+    MailboxError err;
+@ifdef PICTURE_SMS
+    byte *data;
+    word len;
+@endif
+    byte dcs = 0;
+
+    switch(type)
+    {
+      case SEND_AS_GRAPHIC:
+        /* Group graphics are just naked OTA bitmaps */
+        msg = GeosBitmapToOTA(pic, NULL, 0, &size);
+        port = SMS_PORT_GROUP_GRAPHIC;
+        break;
+
+      case SEND_AS_LOGO:
+        /* Convert MCC to little-endian BCD, filled with "F" (hex) */
+        for(i=0; i<4 && (mcc || i==0); i++)
+        {
+          logoHead.mcc <<= 4;
+          logoHead.mcc |= (mcc % 10);
+          mcc /= 10;
+        }
+
+        /* Convert MNC to little-endian BCD */
+        for(i=0; i<2; i++)
+        {
+          logoHead.mnc <<= 4;
+          logoHead.mnc |= (mnc % 10);
+          mnc /= 10;
+        }
+
+        /* Create OTA bitmap with prepended logo header */
+        msg = GeosBitmapToOTA(pic, &logoHead, sizeof(logoHead), &size);
+        port = SMS_PORT_OPERATOR_LOGO;
+        break;
+
+@ifdef PICTURE_SMS
+      case SEND_AS_PICTURE_SMS:
+        len = strlen(text)+7;           // Header before picture
+        data = malloc(len);
+        data[0] = 0x30;                 // Version number?
+        data[1] = 0x00;                 // Identifier for text part?
+        data[2] = 0x00;                 // Could be MSB of text size?
+        data[3] = (byte)strlen(text);
+        strcpy((char *)data+4, text);   // Insert text
+        data[len-3] = 0x02;             // Identifier for bitmap part?
+        data[len-2] = 0x01;             // Could be bitmap size?
+        data[len-1] = 0x00;
+
+        /* Create OTA bitmap with prepended message */
+        msg = GeosBitmapToOTA(pic, data, len, &size);
+        port = SMS_PORT_PICTURE_MESSAGE;
+        break;
+@endif
+
+      case SEND_AS_DCS:
+        {
+          char dcsText[10];
+          @call DCSText::MSG_VIS_TEXT_GET_ALL_PTR(dcsText);
+          dcs = (byte)atoi(dcsText);
+          break;
+        }
+    }
+
+    if(msg)
+    {
+      /* Send message to appropriate port */
+      err = SendSmartMessage(addr, port, msg, size);
+
+      /* Done with message */
+      free(msg);
+
+      if(err != ME_SUCCESS)             // Handle return code
+        FoamDisplayError(@SendError);
+      else
+        FoamDisplayNote(@SentLogo);
+    }
+    else if(dcs)
+    {
+      /* Send message to appropriate port */
+      err = SendDCSMessage(addr, dcs, "Text");
+
+      if(err != ME_SUCCESS)             // Handle return code
+        FoamDisplayError(@SendError);
+      else
+        FoamDisplayNote(@SentLogo);
+    }
+}
+
+
+/********************************************************************
+ *              MCC/MNC database
+ *******************************************************************/
+optr mccList, mncList;
+
+Bitmap *open_bmp;
+word open_mcc, open_mnc;
+
+typedef struct {
+  word mcc;
+  char country[1];
+} MCCListEntry;
+
+typedef struct {
+  word mcc_element;
+  word mnc;
+  char network[1];
+} MNCListEntry;
+
+void AddOperator(char *country, word mcc, char *network, word mnc)
+{
+    word n,i,size;
+    MCCListEntry *cle;
+    MNCListEntry *nle;
+
+    MemLock(OptrToHandle(mccList));
+    n = ChunkArrayGetCount(mccList);
+    for(i=0; i<n; i++)                  // See if MCC is already in database
+    {
+      cle = ChunkArrayElementToPtr(mccList, i, &size);
+      if(cle->mcc == mcc)               // MCC already there? Bingo...
+        break;
+    }
+    if(i>=n)                            // Didn't find it? Add a new entry
+    {
+      cle = ChunkArrayAppend(mccList, sizeof(MCCListEntry)+strlen(country));
+      cle->mcc = mcc;
+      strcpy(cle->country, country);
+      i = n;                            // Index to newly created entry
+    }
+    MemUnlock(OptrToHandle(mccList));
+
+    /* Create a new entry for the operator's network */
+    MemLock(OptrToHandle(mncList));
+    nle = ChunkArrayAppend(mncList, sizeof(MNCListEntry)+strlen(network));
+    nle->mcc_element = i;               // Associate with MCC
+    nle->mnc = mnc;
+    strcpy(nle->network, network);
+    i = n;                              // Index to newly created entry
+    MemUnlock(OptrToHandle(mncList));
+}
+
+Boolean ReadOperators(void)
+{
+    FILE *f;
+    char line[256], *country, *network, *mcc, *mnc, *p;
+
+    f = fopen("operator.csv", "r");
+    if(!f) return TRUE;                 // Not found: error
+
+    while(!feof(f))                     // While still data available...
+    {
+      fgets(line, sizeof(line), f);
+
+      /* Parse a line of semicolon-delimited fields */
+      country = line;
+      network = strchr(country,';');
+      if(network)
+      {
+        *(network++) = 0;
+        mcc = strchr(network,';');
+        if(mcc)
+        {
+          *(mcc++) = 0;
+          mnc = strchr(mcc,';');
+          if(mnc)
+          {
+            *(mnc++) = 0;
+            p = strchr(mnc, ';');
+            if(p)
+              *p = 0;
+          }
+        }
+        else
+          mnc = 0;
+      }
+      else
+        mnc = mcc = NULL;
+
+     /* Got a full line with at least four fields? Add operator to database */
+     if(mnc)
+       AddOperator(country, atoi(mcc), network, atoi(mnc));
+    }
+    fclose(f);
+
+    return FALSE;                       // No error
+}
+
+Boolean ReadDefaultLogo(void)
+{
+    open_bmp = LoadKesslerBitmap("default.nol", &open_mcc, &open_mnc);
+    open_mcc = open_mnc = 0;            // Load default bitmap?
+
+    return open_bmp? FALSE : TRUE;      // No error if bitmap loaded
+}
+
+/********************************************************************
+ *              Process Class
+ *******************************************************************/
+@classdecl LOLAProcessClass, neverSaved;
+
+@method LOLAProcessClass, MSG_GEN_PROCESS_OPEN_APPLICATION
+{
+    TCHAR messageProtocol[9];
+    MemHandle mh;
+
+    @callsuper();
+
+    @send LOLAApp::MSG_GEN_APPLICATION_INSTALL_TOKEN();
+
+    /* Create array for MCC (country code) list */
+    mh = MemAllocLMem(LMEM_TYPE_GENERAL, 0);
+    MemLock(mh);
+    mccList = ConstructOptr(mh, ChunkArrayCreate(mh, 0, 0, 0));
+    MemUnlock(mh);
+
+    /* Create array for MNC (network code) list */
+    mh = MemAllocLMem(LMEM_TYPE_GENERAL, 0);
+    MemLock(mh);
+    mncList = ConstructOptr(mh, ChunkArrayCreate(mh, 0, 0, 0));
+    MemUnlock(mh);
+
+    /* Read operator database and default logo */
+    FileSetCurrentPath(SP_PRIVATE_DATA, "LOLA");
+    if(ReadOperators() || ReadDefaultLogo())
+    {
+      FoamDisplayError(@FileNotFound);
+      @send LOLAApp::MSG_META_QUIT();
+      return;
+    }
+
+    /* Assign bitmap to image preview glyph */
+    SetBitmapMoniker(@LogoPreview, open_bmp);
+
+    /* Initialize list of networks */
+    MemLock(OptrToHandle(mncList));
+    @send Network::MSG_GEN_DYNAMIC_LIST_INITIALIZE(
+      ChunkArrayGetCount(mncList)+1);
+    MemUnlock(OptrToHandle(mncList));
+
+    @send Network::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(0, FALSE);
+
+    SMRegIntegerToHex(SMS_PORT_GROUP_GRAPHIC, messageProtocol,
+      SMRITH_NULL_TERMINATE | SMRITH_WORD_LENGTH);
+    SMRegRegisterApplication(LOLAToken, messageProtocol, 1);
+
+    SMRegIntegerToHex(SMS_PORT_PICTURE_MESSAGE, messageProtocol,
+      SMRITH_NULL_TERMINATE | SMRITH_WORD_LENGTH);
+    SMRegRegisterApplication(LOLAToken, messageProtocol, 1);
+}
+
+@method LOLAProcessClass, MSG_GEN_PROCESS_CLOSE_APPLICATION
+{
+    if(open_bmp)
+    {
+      free(open_bmp);
+      open_bmp = NULL;
+    }
+
+    MemFree(OptrToHandle(mccList));
+    MemFree(OptrToHandle(mncList));
+
+    return @callsuper();
+}
+
+@method LOLAProcessClass, MSG_LOLA_SEND_AS_CHANGED
+{
+    if(selection==SEND_AS_LOGO)
+    {
+      @send NetworkGroup::MSG_GEN_SET_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+    }
+    else
+    {
+      @send NetworkGroup::MSG_GEN_SET_NOT_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+    }
+
+    if(selection==SEND_AS_DCS)
+    {
+      @send DCSTextBox::MSG_GEN_SET_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+    }
+    else
+    {
+      @send DCSTextBox::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+    }
+}
+
+@method LOLAProcessClass, MSG_LOLA_QUERY_NETWORK
+{
+    MCCListEntry *cle;
+    MNCListEntry *nle;
+    char buf[160];
+    word size;
+
+    if(item==0)                         // First entry is always "Logo Off"
+    {
+      MemLock(OptrToHandle(@LogoOff));
+      strcpy(buf, LMemDeref(@LogoOff));
+      MemUnlock(OptrToHandle(@LogoOff));
+    }
+    else                                // Piece together country/network
+    {
+      MemLock(OptrToHandle(mncList));
+      MemLock(OptrToHandle(mccList));
+      nle = ChunkArrayElementToPtr(mncList, item-1, &size);
+      cle = ChunkArrayElementToPtr(mccList, nle->mcc_element, &size);
+      sprintf(buf, "%s: %s", cle->country, nle->network);
+      MemUnlock(OptrToHandle(mccList));
+      MemUnlock(OptrToHandle(mncList));
+    }
+
+    @call list::MSG_GEN_DYNAMIC_LIST_REPLACE_ITEM_TEXT(item, buf);
+}
+
+@method LOLAProcessClass, MSG_LOLA_SEND
+{
+    char destAddr[26];
+    word mcc, mnc;
+    word sendAs, network;
+    char text[MAX_PICTURE_SMS_TEXT+1];
+    MCCListEntry *cle;
+    MNCListEntry *nle;
+    word size;
+
+    @call EditNumber::MSG_VIS_TEXT_GET_ALL_PTR(destAddr);
+    @call EditText::MSG_VIS_TEXT_GET_ALL_PTR(text);
+
+    sendAs = @call SendAs::MSG_GEN_ITEM_GROUP_GET_SELECTION();
+
+    /* Get MCC/MNC for selected network */
+    network = @call Network::MSG_GEN_ITEM_GROUP_GET_SELECTION();
+    if(network>0)                       // Look up network in list
+    {
+      MemLock(OptrToHandle(mncList));
+      MemLock(OptrToHandle(mccList));
+      nle = ChunkArrayElementToPtr(mncList, network-1, &size);
+      cle = ChunkArrayElementToPtr(mccList, nle->mcc_element, &size);
+      mcc = cle->mcc;
+      mnc = nle->mnc;
+      MemUnlock(OptrToHandle(mccList));
+      MemUnlock(OptrToHandle(mncList));
+    }
+    else
+      mcc = mnc = 0;                    // "Off"/unknown network
+
+    SendLogo(destAddr, open_bmp, text, sendAs, mcc, mnc);
+}
+
+void HandleMessage(byte *body, word saveAs)
+{
+    Bitmap      *bmp;
+    Boolean     loop_recv, loop_filename;
+    char        filename[13];
+    optr        dialog;
+
+    if(saveAs == SEND_AS_GRAPHIC)       // Group graphic
+    {
+      bmp = OTABitmapToGeos(body);      // Convert bitmap to Geos format
+
+      if(!bmp)                          // Couldn't decode bitmap?
+      {
+        FoamDisplayNote(@BadLogo);      // Error: cannot handle image
+        return;
+      }
+
+      /* Assign bitmap to image preview glyph */
+      SetBitmapMoniker(@ReceivedGraphicPreview, bmp);
+
+      dialog = @ReceivedGraphicMessage; // Use this dialog for display
+    }
+@ifdef PICTURE_SMS
+    else                                // Picture SMS
+    {
+      bmp = NULL;
+      if(body[0]==0x30 && body[1]==0x00 && body[2]==0x00)
+      {
+        if(body[3])                     // Do we have any text?
+          @call ReceivedPictureText::MSG_VIS_TEXT_REPLACE_ALL_PTR(
+            (char *)body+4, body[3]);   // Move text into dialog
+        else
+          @call ReceivedPictureText::MSG_VIS_TEXT_DELETE_ALL();
+
+        if(body[4+body[3]]==0x02 && body[5+body[3]]==0x01 && body[6+body[3]]==0)
+          bmp = OTABitmapToGeos(body+7+body[3]);
+                                        // Convert bitmap to Geos format
+      }
+
+      if(!bmp)                          // Couldn't decode bitmap?
+      {
+        FoamDisplayNote(@BadPicture);   // Error: cannot handle image
+        return;
+      }
+
+      /* Assign bitmap to image preview glyph */
+      SetBitmapMoniker(@ReceivedPicturePreview, bmp);
+
+      dialog = @ReceivedPictureMessage;
+    }
+@endif
+
+    loop_recv = TRUE;                   // Show Received message until finished
+    while(loop_recv)
+    {
+      if(UserDoDialog(dialog)==IC_YES)
+      {                                 // User wants to save it?
+        loop_filename = TRUE;           // Re-enter filename until finished
+        while(loop_filename)
+        {
+          if(UserDoDialog(@FilenameEntryDialog)==IC_APPLY)
+          {
+            @call EntryTextField::MSG_VIS_TEXT_GET_ALL_PTR(filename);
+            strcat(filename, ".NGG");   // Create filename for logo file
+
+            FoamSetDocumentDir(FDD_DOWNLOADED_FILES);
+            if(!TestFileExists(filename) ||
+               FoamDisplayQuestion(@FileExists)==IC_YES)
+            {
+              if(SaveKesslerBitmap(filename, bmp))
+              {                         // Try to save logo to Kessler File
+                FoamDisplayError(@CannotWrite);
+                                        // Error saving file
+              }
+              else
+              {
+                loop_filename = FALSE;
+                loop_recv = FALSE;      // Done with message
+              }
+            }
+          }
+          else                          // "Cancel" selected
+            loop_filename = FALSE;      // Back to preview
+        }
+      }
+      else
+        loop_recv = FALSE;
+    }
+
+    free(bmp);                          // Done with bitmap
+}
+
+@method LOLAProcessClass, MSG_META_MAILBOX_NOTIFY_MESSAGE_AVAILABLE
+{
+    MailboxError            errorCode;
+    VMTreeAppRef            vmRef;
+    word                    refSize;
+    MemHandle               handleToData;
+    byte                    *ptrToData, *body;
+    Boolean                 ret = FALSE;
+    word                    port, len, bodylen;
+
+    /* Yes, got it it... */
+    MailboxAcknowledgeMessageReceipt(msg);
+
+    /* Get reference to message */
+    refSize = sizeof(vmRef);
+    errorCode = MailboxGetBodyRef(msg, &vmRef, &refSize);
+
+    if(errorCode == ME_SUCCESS)
+    {
+      ptrToData = VMLock(vmRef.VMTAR_vmFile,
+        VMCHAIN_GET_VM_BLOCK(vmRef.VMTAR_vmChain), &handleToData);
+
+      ptrToData += sizeof(VMChainLink); // Skip over VMChainLink
+
+      /* Estimate size of SMS to make sure that buffers are correct size.
+         This method may leave a few bytes of "slack" at the end of the
+         message because of rounding of memory blocks to para boundaries. */
+      len = MemGetInfo(handleToData, MGIT_SIZE) - sizeof(VMChainLink);
+      if(len>SMS_GSM_MAX_8BIT_USER_DATA && len<SMS_GSM_MAX_8BIT_USER_DATA+14)
+        len = SMS_GSM_MAX_8BIT_USER_DATA;
+
+      /* Receive and possibly concatenate a UDH message */
+      body = ReceiveSmartMessage(ptrToData, len, &port, &bodylen);
+
+      if(body)                          // Fully reassembled a message?
+      {
+        if(port == SMS_PORT_GROUP_GRAPHIC)
+          HandleMessage(body, SEND_AS_GRAPHIC);
+@ifdef PICTURE_SMS
+        else if(port == SMS_PORT_PICTURE_MESSAGE)
+          HandleMessage(body, SEND_AS_PICTURE_SMS);
+@endif
+        free(body);
+      }
+
+      VMUnlock(handleToData);           // Release original message
+      MailboxDoneWithBody(msg, &vmRef, refSize);
+
+      ret = TRUE;                       // Success in dealing with message
+    }
+
+    MailboxDeleteMessage(msg);          // Message is no longer needed...
+
+    return ret;
+}
+
+/********************************************************************
+ *              LOLAOpenControlClass
+ *******************************************************************/
+@classdecl LOLAOpenControlClass;
+
+/* Disable and re-enable triggers whose slots overlap
+   the FileOpenControl's when it views a subdirectory. */
+@method LOLAOpenControlClass, MSG_FILE_OPEN_CONTROL_SUB_DIR_OPEN
+{
+    @send FileCloseTrigger::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+}
+
+@method LOLAOpenControlClass, MSG_FILE_OPEN_CONTROL_SUB_DIR_CLOSE
+{
+    @send FileCloseTrigger::MSG_GEN_SET_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+}
+
+@method LOLAOpenControlClass, MSG_FILE_OPEN_CONTROL_OPEN
+{
+    word                    i,n;
+    MCCListEntry            *cle;
+    MNCListEntry            *nle;
+    word                    size;
+@ifdef PICTURE_SMS
+    DocumentHandle          dh;
+    VMFileHandle            vmh;
+    Boolean                 badSMS;
+    MemHandle               handleToData;
+    byte                    *ptrToData, *body;
+    word                    port, len, bodylen;
+@endif
+
+    FoamSetDocumentDir(docInfo->DI_docDir);
+@ifdef PICTURE_SMS
+    if(FoamGetFileType(docInfo->DI_docName)==GFT_VM)
+    {
+      badSMS = TRUE;                    /* Until message fully understood */
+      dh = FoamDocOpen(docInfo, FDA_READ_ONLY);
+      if(dh)
+      {
+        vmh = (MemHandle)FoamDocGetHeaderData(dh, FDH_HANDLE1);
+        if(vmh)
+        {
+          badSMS = FALSE;               // Assume message is okay now
+
+          ptrToData = VMLock(dh, vmh, &handleToData);
+
+          /* Estimate size of SMS to make sure that buffers are correct size.
+             This method may leave a few bytes of "slack" at the end of the
+             message because of rounding of memory blocks to para boundaries. */
+          len = MemGetInfo(handleToData, MGIT_SIZE);
+          if(len>SMS_GSM_MAX_8BIT_USER_DATA)
+            len = SMS_GSM_MAX_8BIT_USER_DATA;
+
+          /* Receive and possibly concatenate a UDH message */
+          body = ReceiveSmartMessage(ptrToData, len, &port, &bodylen);
+
+          if(body)                      // Fully reassembled a message?
+          {
+            if(port == SMS_PORT_GROUP_GRAPHIC)
+              HandleMessage(body, SEND_AS_GRAPHIC);
+@ifdef PICTURE_SMS
+            else if(port == SMS_PORT_PICTURE_MESSAGE)
+              HandleMessage(body, SEND_AS_PICTURE_SMS);
+@endif
+            else
+              FoamDisplayError(@UnknownPort);
+            free(body);
+          }
+          else
+            FoamDisplayNote(@MessageReceived);
+
+          VMUnlock(handleToData);       // Release original message
+        }
+
+        FoamDocClose(dh);
+      }
+      if(badSMS)
+        FoamDisplayError(@NoDataMsg);
+      return;
+    }
+@endif
+
+    if(open_bmp)
+    {
+      free(open_bmp);
+      open_bmp = NULL;
+    }
+
+    open_bmp = LoadKesslerBitmap(docInfo->DI_docName, &open_mcc, &open_mnc);
+
+    if(!open_bmp)                       /* Unsuccessful as Kessler Bitmap? */
+    {
+      open_bmp = LoadGIFJPEG(docInfo);  /* Try using the GIF/JPEG import */
+      open_mcc = open_mnc = 0;
+    }
+
+    if(!open_bmp)                       /* Couldn't open file? */
+    {
+      FoamDisplayError(@LogoNotFound);
+    }
+    else
+    {
+      i = 0;                            // Default: use "Logo Off" entry
+
+      if(open_mcc || open_mnc)          // Preset with MCC/MNC if known
+      {
+        MemLock(OptrToHandle(mncList));
+        MemLock(OptrToHandle(mccList));
+        n = ChunkArrayGetCount(mncList);
+        for(i=0; i<n; i++)              // Scan for network with right MCC/MNC
+        {
+          nle = ChunkArrayElementToPtr(mncList, i, &size);
+          cle = ChunkArrayElementToPtr(mccList, nle->mcc_element, &size);
+          if(nle->mnc==open_mnc && cle->mcc==open_mcc)
+            break;                      // Abort if MCC/MNC pair found
+        }
+        MemUnlock(OptrToHandle(mccList));
+        MemUnlock(OptrToHandle(mncList));
+
+        if(i<n)                         // Found a network
+          i++;                          // Fix up index into list in UI
+        else
+          i = 0;                        // Unknown network
+      }
+
+      /* Set network selection to appropriate setting */
+      @call Network::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(i, FALSE);
+
+@ifdef PICTURE_SMS
+      @send EditText::MSG_VIS_TEXT_DELETE_ALL();
+      if(open_bmp->B_height == 28)      // Image size is for picture SMS?
+      {
+        @send SendAs::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(
+          SEND_AS_PICTURE_SMS, FALSE);  // Store type to use in sending
+        @send EditTextBox::MSG_GEN_SET_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send DCSTextBox::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send SendAsGroup::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send NetworkGroup::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+      }
+      else
+@endif
+      {
+        @call SendAs::MSG_GEN_ITEM_GROUP_SET_SINGLE_SELECTION(
+          SEND_AS_GRAPHIC, FALSE);
+        @send EditTextBox::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send DCSTextBox::MSG_GEN_SET_NOT_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send SendAsGroup::MSG_GEN_SET_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send NetworkGroup::MSG_GEN_SET_USABLE(VUM_DELAYED_VIA_APP_QUEUE);
+        @send NetworkGroup::MSG_GEN_SET_NOT_ENABLED(VUM_DELAYED_VIA_APP_QUEUE);
+      }
+
+      /* Assign bitmap to image preview glyph */
+      SetBitmapMoniker(@LogoPreview, open_bmp);
+
+      @send LOLAFileOpen::MSG_GEN_INTERACTION_ACTIVATE_COMMAND(IC_DISMISS);
+    }
+}
+
+/********************************************************************
+ *              LOLATextClass
+ *******************************************************************/
+@classdecl LOLATextClass;
+
+@method LOLATextClass, MSG_META_KBD_CHAR
+{
+      /*
+       * Check to see if it is the tab key and the key is being
+       * pressed or held down. We want to ignore key releases
+       * otherwise we'll navigate yet again and the user won't
+       * expect this to happen.
+       */
+    if( ( ( 0x00ff & character ) == VC_TAB ) &&
+        ( flags & ( CF_FIRST_PRESS | CF_REPEAT_PRESS ) ) )
+    {
+      if(flags & (SS_LSHIFT | SS_RSHIFT))
+        @send LOLASendBox::MSG_GEN_NAVIGATE_TO_PREVIOUS_FIELD();
+      else
+        @send LOLASendBox::MSG_GEN_NAVIGATE_TO_NEXT_FIELD();
+    }
+    else
+    {
+      @callsuper();
+    }
+} /* MSG_META_KBD_CHAR */
+
