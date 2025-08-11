@@ -1,0 +1,633 @@
+/*
+ *  project:    same
+ *
+ *  file:       process/process.goc
+ */
+
+@include <stdapp.goh>
+#include <geode.h>
+
+#include <ansi\stdio.h>
+#include <ansi\string.h>
+
+@define __SAME_PROCESS_PROCESS_GOC
+@include <same.goh>
+@include <local/strings.goh>
+
+@classdecl SameProcessClass;
+
+char      playingField[30][20];
+char      shadowField[30][20];
+char      undoField[30][20];
+word      fieldWidth, fieldHeight;
+word      nTiles, tileWidth, tileHeight;
+word      score;
+word      undoScore;
+word      gameNumber;
+word      timerCount;
+Boolean   timerEnable;
+word      sameTimerID;
+MemHandle sameTimerHandle;
+word      curX, curY;
+
+/*
+ *  Routinen fÅr SameProcessClass
+ */
+word rnd(long seed)
+{
+        static long IBM = 3;
+
+        if(seed) IBM = seed;
+        IBM=IBM * 65531L;
+        return (word)(IBM>>8);
+}
+
+void SameInit(long seed)
+{
+    word x,y;
+    char c;
+
+    rnd(seed);                          // Zufallsgenerator einstellen...
+
+    for(y=0; y<fieldHeight; y++)
+      for(x=0; x<fieldWidth; x++)
+      {
+        do {
+          c = (rnd(0)&0x0F);
+        } while(c<1 || c>nTiles);
+        playingField[x][y] = c;
+      }
+
+    @send SameView::MSG_GEN_VIEW_SET_DOC_BOUNDS(
+        fieldHeight*tileHeight, fieldWidth*tileWidth, 0, 0);
+}
+
+void DrawField(GStateHandle gstate, word x, word y, word tileType)
+{
+@ifdef NOKIA
+    byte delta;
+@endif
+
+    if(playingField[x][y])          /* Feld Åberhaupt besetzt? */
+    {
+      /* Entsprechend ausfÅllen */
+      switch(tileType)
+      {
+        case TF_1:
+@ifdef NOKIA
+          delta = (byte)
+            (word)(SDM_25-SDM_100)*(playingField[x][y]-1)/(nTiles-1);
+          GrSetAreaColor(gstate, CF_INDEX, C_WHITE, 0,0);
+          GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                             (x+1)*tileWidth, (y+1)*tileHeight);
+          GrSetAreaMaskSys(gstate, delta+SDM_100);
+          GrSetAreaColor(gstate, CF_INDEX, C_BLACK, 0,0);
+          GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                             (x+1)*tileWidth, (y+1)*tileHeight);
+          GrSetAreaMaskSys(gstate, SDM_100);
+@else
+          GrSetAreaColor(gstate, CF_INDEX, playingField[x][y], 0,0);
+          GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                             (x+1)*tileWidth, (y+1)*tileHeight);
+@endif
+
+          if(x==curX && y==curY)   /* draw cursor */
+          {
+            GrSetAreaColor(gstate, CF_INDEX, C_WHITE, 0, 0);
+            GrFillRect(gstate, x*tileWidth+1+tileWidth/3,
+                               y*tileHeight+tileHeight/3,
+                               (x+1)*tileWidth-tileWidth/3,
+                               (y+1)*tileHeight-tileHeight/3);
+          }
+          break;
+        case TF_2:
+          if(x==curX && y==curY)        /* draw cursor */
+          {
+            GrSetAreaColor(gstate, CF_INDEX, C_BLACK, 0, 0);
+            GrSetLineColor(gstate, CF_INDEX, C_WHITE, 0, 0);
+            GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                               (x+1)*tileWidth, (y+1)*tileHeight);
+          }
+          else
+          {
+            GrSetAreaColor(gstate, CF_INDEX, C_WHITE, 0, 0);
+            GrSetLineColor(gstate, CF_INDEX, C_BLACK, 0, 0);
+            GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                               (x+1)*tileWidth, (y+1)*tileHeight);
+
+          }
+          switch(playingField[x][y])
+          {
+            case 1: GrDrawEllipse(gstate,
+                                  x*tileWidth+2, y*tileHeight+2,
+                                  (x+1)*tileWidth-1, (y+1)*tileHeight-1);
+                    break;
+            case 2: GrDrawRect(gstate,
+                               x*tileWidth+2, y*tileHeight+2,
+                               (x+1)*tileWidth-1, (y+1)*tileHeight-1);
+                    break;
+            case 3: GrDrawLine(gstate,
+                               x*tileWidth+2, y*tileHeight+2,
+                               (x+1)*tileWidth-1, (y+1)*tileHeight-1);
+                                    GrDrawLine(gstate,
+                               x*tileWidth+2, (y+1)*tileHeight-1,
+                               (x+1)*tileWidth-1, y*tileHeight+2);
+                    break;
+            case 4: GrDrawHLine(gstate,
+                                x*tileWidth+2, y*tileHeight+tileHeight/2,
+                                (x+1)*tileWidth-1);
+                    GrDrawVLine(gstate,
+                                x*tileWidth+tileHeight/2, y*tileHeight+2,
+                                (y+1)*tileHeight-1);
+                    break;
+            case 5: GrDrawLine(gstate,
+                               x*tileWidth+2, y*tileHeight+2,
+                               (x+1)*tileWidth-1, (y+1)*tileHeight-1);
+                                    GrDrawLine(gstate,
+                               x*tileWidth+2, (y+1)*tileHeight-1,
+                               (x+1)*tileWidth-1, y*tileHeight+2);
+                    GrDrawHLine(gstate,
+                                x*tileWidth+2, y*tileHeight+tileHeight/2,
+                                (x+1)*tileWidth-1);
+                    GrDrawVLine(gstate,
+                                x*tileWidth+tileHeight/2, y*tileHeight+2,
+                                (y+1)*tileHeight-1);
+                    break;
+          }
+          break;
+      }
+    }
+    else
+    {
+      GrSetAreaColor(gstate, CF_INDEX, C_WHITE, 0, 0);
+      GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                         (x+1)*tileWidth, (y+1)*tileHeight);
+      if(x==curX && y==curY)            /* draw cursor */
+      {
+        GrSetAreaColor(gstate, CF_INDEX, C_BLACK, 0, 0);
+        if(tileType==TF_1)              /* color tiles: small cursor */
+        {
+          GrFillRect(gstate, x*tileWidth+1+tileWidth/3,
+                             y*tileHeight+tileHeight/3,
+                             (x+1)*tileWidth-tileWidth/3,
+                             (y+1)*tileHeight-tileHeight/3);
+        }
+        else                            /* symbol tiles: big cursor */
+        {
+           GrFillRect(gstate, x*tileWidth+1, y*tileHeight+1,
+                              (x+1)*tileWidth, (y+1)*tileHeight);
+        }
+      }
+    }
+}
+
+void SameDraw(GStateHandle gstate)
+{
+    word x,y;
+    word tileType;
+
+    GrSetLineWidth(gstate, MakeWWFixed(1));
+    GrSetLineStyle(gstate, LS_SOLID, 0, NULL, 0);
+    GrSetAreaMaskSys(gstate, SDM_100);
+
+    tileType = @call SameOptionsMenuTilesList::
+                     MSG_GEN_ITEM_GROUP_GET_SELECTION();
+
+    for(y=0; y<fieldHeight; y++)
+      for(x=0; x<fieldWidth; x++)
+        DrawField(gstate, x, y, tileType);
+}
+
+@method SameProcessClass, MSG_META_EXPOSED
+{
+    GStateHandle gstate;
+
+    @callsuper();
+
+    gstate = GrCreateState(win);
+    GrBeginUpdate(gstate);
+    SameDraw(gstate);
+    GrEndUpdate(gstate);
+    GrDestroyState(gstate);
+}
+
+void UpdateField(void)
+{
+    WindowHandle win;
+    GStateHandle gstate;
+
+    win = @call SameView::MSG_GEN_VIEW_GET_WINDOW();
+    gstate = GrCreateState(win);
+    SameDraw(gstate);
+    GrDestroyState(gstate);
+}
+
+word ClearTile(word x,word y)
+{
+    char c;
+    word n = 1;
+
+    c = playingField[x][y];             // Worauf stehen wir hier?
+    playingField[x][y] = 0;             // Feld ist erledigt...
+
+    if(x>0 && playingField[x-1][y]==c)
+      n += ClearTile(x-1, y);
+    if(y>0 && playingField[x][y-1]==c)
+      n += ClearTile(x, y-1);
+    if(x<fieldWidth-1 && playingField[x+1][y]==c)
+      n += ClearTile(x+1, y);
+    if(y<fieldHeight-1 && playingField[x][y+1]==c)
+      n += ClearTile(x, y+1);
+
+    return n;
+}
+
+void CompactField(void)
+{
+    word x, y;
+    Boolean moved;
+
+    /* Leere Spalten entfernen */
+    do {
+      moved = FALSE;
+      for(x=0; x<fieldWidth-1; x++)
+      {
+        /* PrÅfen, ob Spalte leer (au·er bei Ñu·erster linker Spalte) */
+        for(y=fieldHeight-1; (sword)y>=0; y--)
+          if(playingField[x][y])
+            break;
+
+        if((sword)y<0)                  // Nichts gefunden: leere Spalte
+        {
+          /* Spalte nach links aufrÅcken */
+          for(y=0; y<fieldHeight; y++)
+          {
+            moved |= (playingField[x][y] = playingField[x+1][y]);
+            playingField[x+1][y] = 0;
+          }
+        }
+      }
+      if(moved)
+        UpdateField();
+    } while(moved);
+
+    /* Leere Zellen entfernen */
+    do {
+      moved = FALSE;
+      for(x=0; x<fieldWidth; x++)
+        for(y=fieldHeight-1; y>0; y--)
+          if(playingField[x][y]==0)
+          {
+            moved |= (playingField[x][y] = playingField[x][y-1]);
+            playingField[x][y-1] = 0;
+          }
+      if(moved)
+        UpdateField();
+    } while(moved);
+}
+
+#define GOT_NOT_OVER 0
+#define GOT_WON      1
+#define GOT_STUCK    2
+
+word GameOver(void)
+{
+    word x,y;
+    char c;
+    word ret = GOT_WON;
+
+    for(y=0; y<fieldHeight; y++)
+      for(x=0; x<fieldWidth; x++)
+      {
+        c = playingField[x][y];
+        if(c)
+        {
+          if((x<fieldWidth-1 && playingField[x+1][y]==c) ||
+             (y<fieldHeight-1 && playingField[x][y+1]==c))
+            return GOT_NOT_OVER;
+          ret = GOT_STUCK;
+        }
+      }
+    timerEnable = FALSE;       // Zeit wird angehalten, da Spielende
+    return ret;
+}
+
+@method SameProcessClass, MSG_SAME_PROC_CLICK_AT
+{
+    char c;
+    word cleared, ret;
+
+    c = playingField[x][y];             // Bei nur einem Feld: wieder zurÅck
+    if(c)                               // Leere Felder anklicken: blîde
+    {
+      memcpy(&shadowField, &playingField, sizeof(playingField));
+      cleared = ClearTile(x,y);         // Rekursiv Nachbarfelder entfernen
+      if(cleared>1)                     // Mehr als ein Feld entfernt?
+      {
+        @send SameGameMenuUndoTrigger::MSG_GEN_SET_ENABLED(
+          VUM_DELAYED_VIA_APP_QUEUE);
+        @send SameGameMenuUndoTrigger::MSG_GEN_SET_USABLE(
+          VUM_DELAYED_VIA_APP_QUEUE);
+        @send SameGameMenuRedoTrigger::MSG_GEN_SET_NOT_USABLE(
+          VUM_DELAYED_VIA_APP_QUEUE);   // undo trigger aktivieren
+        memcpy(&undoField, &shadowField, sizeof(playingField));
+                                        // Spielfeld f¸r undo Funktion sichern
+        timerEnable = TRUE;             // Zeit started beim ersten Punkt.
+        @call self::MSG_SAME_PROC_UPDATE_SCORE(cleared);
+                                        // Punkte zÑhlen
+        UpdateField();                  // Bildschirm aktualisieren
+        CompactField();                 // LÅcken auffÅllen und neu malen...
+        ret = GameOver();
+        if(ret != GOT_NOT_OVER)
+          @send,forceQueue process::MSG_SAME_PROC_GAME_OVER(ret);
+      }
+      else
+        playingField[x][y] = c;         // Nur ein Feld: nicht Ñndern
+    }
+}
+
+@method SameProcessClass, MSG_META_KBD_CHAR
+{
+    word oldCurX = curX,
+         oldCurY = curY;
+    Boolean moved = FALSE;
+    WindowHandle win;
+    GStateHandle gstate;
+    word tileType;
+
+@ifndef NOKIA
+    if(curX==0xFFFF || curY==0xFFFF)    /* make cursor visible */
+    {
+      oldCurX = curX = oldCurY = curY = 0;
+      moved = TRUE;
+    }
+@endif
+
+    if(flags & (CF_FIRST_PRESS | CF_REPEAT_PRESS))
+    {
+      switch((byte)character)           /* handle keypresses to move cursor */
+      {
+        case VC_LEFT:
+          if(curX>0) curX--; else curX = fieldWidth-1;
+          moved = TRUE;
+          break;
+        case VC_RIGHT:
+          if(curX<fieldWidth-1) curX++; else curX = 0;
+          moved = TRUE;
+          break;
+        case VC_UP:
+          if(curY>0) curY--; else curY = fieldHeight-1;
+          moved = TRUE;
+          break;
+        case VC_DOWN:
+          if(curY<fieldHeight-1) curY++; else curY = 0;
+          moved = TRUE;
+          break;
+        case VC_ENTER:
+          @send self::MSG_SAME_PROC_CLICK_AT(curX, curY);
+          break;
+        default:
+          @callsuper();
+      }
+    }
+    else
+    {
+      @callsuper();
+    }
+
+    if(moved)
+    {
+      tileType = @call SameOptionsMenuTilesList::
+                       MSG_GEN_ITEM_GROUP_GET_SELECTION();
+      win = @call SameView::MSG_GEN_VIEW_GET_WINDOW();
+      gstate = GrCreateState(win);
+      DrawField(gstate, oldCurX, oldCurY, tileType); // remove cursor
+      DrawField(gstate, curX, curY, tileType);       // draw new cursor
+      GrDestroyState(gstate);
+    }
+}
+
+@ifndef NOKIA
+@method SameProcessClass, MSG_META_START_SELECT
+{
+    sword x,y;
+
+    /* Entsprechende Position im Spielfeld berechnen */
+    x = (xPosition / tileWidth);
+    y = (yPosition / tileHeight);
+
+    /* Sind wir im Spielfeld? */
+    if(x>=0 && x<fieldWidth && y>=0 && y<fieldHeight)
+      @send self::MSG_SAME_PROC_CLICK_AT(x, y);
+}
+@endif
+
+/* Make sure that keyboard help for content works when it has the focus. */
+@method SameProcessClass, MSG_META_BRING_UP_HELP
+{
+    @send application::MSG_META_BRING_UP_HELP();
+}
+
+@method SameProcessClass, MSG_SAME_PROC_NEW_BOARD
+{
+    char buf[80];
+
+    timerCount = 0;  // Zeit zurÅcksetzen
+    timerEnable = FALSE;
+    sprintf (buf,TIME_STRING,0,0);
+    @call SameTimeGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(buf,VUM_DELAYED_VIA_APP_QUEUE);
+
+    sprintf (buf,NUMBER_STRING,seed);    // Gamenummer anzeigen
+@ifdef NOKIA
+    @call SameGameGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(
+                       buf, VUM_DELAYED_VIA_APP_QUEUE);
+@else
+    @call SamePrimary::MSG_GEN_PRIMARY_REPLACE_LONG_TERM_MONIKER
+                       ( VUM_NOW,0,0,0,VMDT_TEXT,VMST_FPTR,(dword)buf);
+@endif
+    seed = (2*seed) | 1; // make seed 0x0001-0xffff
+
+    switch(@call SameOptionsMenuBoardSizeList::MSG_GEN_ITEM_GROUP_GET_SELECTION())
+    {
+        case 1:
+            fieldWidth = 12;
+            fieldHeight = 8;
+            break;
+
+        case 2:
+            fieldWidth = 20;
+            fieldHeight = 10;
+            break;
+
+        case 3:
+            fieldWidth = 28;
+            fieldHeight = 12;
+            break;
+    }
+
+@ifndef NOKIA
+    switch(@call SameOptionsMenuTileSizeList::MSG_GEN_ITEM_GROUP_GET_SELECTION())
+    {
+        case 1:
+            tileWidth = tileHeight = 11;
+            break;
+
+        case 2:
+            tileWidth = tileHeight = 24;
+            break;
+
+        case 3:
+            tileWidth = tileHeight = 36;
+            break;
+    }
+@else
+    tileWidth = tileHeight = 11;
+@endif
+
+    nTiles = 5;
+
+    SameInit(seed);
+    @call self::MSG_SAME_PROC_UPDATE_SCORE(0xFFFF);
+
+    @call SameView::MSG_GEN_VIEW_REDRAW_CONTENT();
+}
+
+@method SameProcessClass, MSG_SAME_PROC_UPDATE_SCORE
+{
+    char buf[80];
+
+    if(tiles==0xFFFF)
+    {
+      score = undoScore = 0;
+    }else{
+      undoScore = (tiles-1)*(tiles-1);
+      score += (tiles-1)*(tiles-1);
+    }
+
+    sprintf(buf, SCORE_STRING, score);
+    @call SameScoreGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(
+        buf, VUM_DELAYED_VIA_APP_QUEUE);
+}
+
+@method SameProcessClass, MSG_SAME_PROC_GAME_OVER
+{
+    // stop timer
+    if(got == GOT_WON)
+    {
+        @call SameGameWinDialog::MSG_GEN_INTERACTION_INITIATE();
+    }else{
+        @call SameGameEndDialog::MSG_GEN_INTERACTION_INITIATE();
+    }
+}
+
+@method SameProcessClass, MSG_GEN_PROCESS_OPEN_APPLICATION
+{
+    @call self::MSG_SAME_PROC_NEW_GAME();
+
+    @callsuper();
+
+    /*
+     * Install token if not already there
+     */
+    @call SameApp::MSG_GEN_APPLICATION_INSTALL_TOKEN();
+
+    sameTimerHandle=TimerStart(TIMER_EVENT_CONTINUAL, oself, 60,
+                               MSG_SAME_PROC_TIMER, 60, &sameTimerID);
+}
+
+@method SameProcessClass, MSG_GEN_PROCESS_CLOSE_APPLICATION
+{
+    TimerStop(sameTimerHandle,sameTimerID);
+    return @callsuper();
+}
+
+
+@method SameProcessClass, MSG_SAME_PROC_NEW_GAME
+{
+   gameNumber = ((long)gameNumber*(long)gameNumber+TimerGetCount())&0x7fff;
+@ifdef NOKIA
+   curX = curY = 0;
+@else
+   curX = curY = 0xFFFF;
+@endif
+   @call self::MSG_SAME_PROC_NEW_BOARD(gameNumber);
+   @call SameGameMenuRedoTrigger::MSG_GEN_SET_NOT_USABLE(
+     VUM_DELAYED_VIA_APP_QUEUE);
+   @call SameGameMenuUndoTrigger::MSG_GEN_SET_USABLE(
+     VUM_DELAYED_VIA_APP_QUEUE);
+   @call SameGameMenuUndoTrigger::MSG_GEN_SET_NOT_ENABLED(
+     VUM_DELAYED_VIA_APP_QUEUE);
+}
+
+
+@method SameProcessClass, MSG_SAME_PROC_SAME_GAME
+{
+    @call self::MSG_SAME_PROC_NEW_BOARD(gameNumber);
+}
+
+@method SameProcessClass, MSG_SAME_PROC_CUSTOM_GAME
+{
+    gameNumber = @call SameCustomStartValue::MSG_GEN_VALUE_GET_INTEGER_VALUE();
+
+    // enter game number
+    @call self::MSG_SAME_PROC_NEW_BOARD(gameNumber);
+}
+
+@method SameProcessClass, MSG_SAME_PROC_TIMER
+{
+  char buf[80];
+  if (timerEnable) {
+    timerCount ++;
+    sprintf (buf,TIME_STRING,timerCount/60,timerCount%60);
+    @call SameTimeGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(buf,VUM_DELAYED_VIA_APP_QUEUE);
+    if (score) {
+      score--;
+      sprintf(buf, SCORE_STRING, score);
+      @call SameScoreGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(
+          buf, VUM_DELAYED_VIA_APP_QUEUE);
+    }
+  }
+}
+
+@method SameProcessClass, MSG_SAME_PROC_UNDO
+{
+   char buf[80];
+
+   memcpy(&shadowField, &playingField, sizeof(playingField));
+   memcpy(&playingField, &undoField, sizeof(playingField));
+   UpdateField();
+
+   if(score >= undoScore)
+      score -= undoScore;
+   else
+      score = 0;
+   sprintf(buf, SCORE_STRING, score);
+   @call SameScoreGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(buf,
+     VUM_DELAYED_VIA_APP_QUEUE);
+
+   @call SameGameMenuRedoTrigger::MSG_GEN_SET_USABLE(
+     VUM_DELAYED_VIA_APP_QUEUE);
+   @call SameGameMenuUndoTrigger::MSG_GEN_SET_NOT_USABLE(
+     VUM_DELAYED_VIA_APP_QUEUE);
+}
+
+@method SameProcessClass, MSG_SAME_PROC_REDO
+{
+   char buf[80];
+
+   memcpy(&undoField, &playingField, sizeof(playingField));
+   memcpy(&playingField, &shadowField, sizeof(playingField));
+   UpdateField();
+
+   score += undoScore;
+   sprintf(buf, SCORE_STRING, score);
+   @call SameScoreGlyph::MSG_GEN_REPLACE_VIS_MONIKER_TEXT(buf,
+     VUM_DELAYED_VIA_APP_QUEUE);
+
+   @call SameGameMenuUndoTrigger::MSG_GEN_SET_USABLE(
+     VUM_DELAYED_VIA_APP_QUEUE);
+   @call SameGameMenuUndoTrigger::MSG_GEN_SET_ENABLED(
+     VUM_DELAYED_VIA_APP_QUEUE);
+   @call SameGameMenuRedoTrigger::MSG_GEN_SET_NOT_USABLE(
+     VUM_DELAYED_VIA_APP_QUEUE);
+}

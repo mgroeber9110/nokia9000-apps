@@ -1,0 +1,493 @@
+/*
+ *  project:    same
+ *
+ *  file:       ui/main.goc
+ */
+
+@include <stdapp.goh>
+@include <gstring.h>
+
+@include <art\icon.goh>
+@include <faces\dirk.goh>
+@include <faces\jirka.goh>
+@include <faces\jens.goh>
+@include <faces\falk.goh>
+@include <faces\joerg.goh>
+@include <faces\marcus.goh>
+@include <faces\lysle.goh>
+@include <faces\gerd.goh>
+
+@define __SAME_UI_MAIN_GOC
+@define __SAME_UI_DIALOG_GOC
+@include <same.goh>
+
+@include "ui\dialog.goh"
+
+@start AppResource;
+
+@ifdef NOKIA
+ @object FoamSubApplicationClass SameApp = {
+@else
+ @object GenApplicationClass SameApp = {
+@endif
+   GI_visMoniker = list {@SameTextMoniker,
+                         @Moniker0,
+                         @Moniker1,
+                         @Moniker2,
+                         @Moniker3,
+                         @Moniker4,
+                         @Moniker5,
+                         @Moniker6};
+   GI_comp = @SamePrimary;
+
+@ifdef NOKIA
+   FSAI_launcherApp = FA_EXTRAS_APP;
+   HINT_APPLICATION_QUIT_ON_IACP_ALLOW_FILE_ACCESS;
+@endif
+
+   gcnList(MANUFACTURER_ID_GEOWORKS,GAGCNLT_WINDOWS) = @SamePrimary;
+   gcnList(MANUFACTURER_ID_GEOWORKS,GAGCNLT_STARTUP_LOAD_OPTIONS) =
+                                       @SamePrimary,
+                                       @SameOptionsMenuBoardSizeList,
+@ifndef NOKIA
+                                       @SameOptionsMenuTileSizeList,
+@endif
+                                       @SameOptionsMenuTilesList;
+   gcnList(MANUFACTURER_ID_GEOWORKS,GAGCNLT_SELF_LOAD_OPTIONS) =
+                                       @SamePrimary,
+                                       @SameOptionsMenuBoardSizeList,
+@ifndef NOKIA
+                                       @SameOptionsMenuTileSizeList,
+@endif
+                                       @SameOptionsMenuTilesList;
+   ATTR_GEN_INIT_FILE_CATEGORY = "Same Game";
+}
+
+@visMoniker SameTextMoniker = "Same";
+
+@end AppResource;
+
+@start InterfaceResource;
+
+@object GenPrimaryClass SamePrimary = {
+   GI_comp = @SameGameMenu,
+
+@ifdef NOKIA
+             @SameOptionsTrigger,
+             @SameCloseTrigger,
+             @SameOptionsDialog,
+@else
+             @SameOptionsMenu,
+@endif
+             @SameCustomStartDialog,
+             @SameGameWinDialog,
+             @SameGameEndDialog,
+             @SamePrimaryGroup;
+   ATTR_GEN_HELP_CONTEXT = "TOC";
+}
+
+@object GenInteractionClass SamePrimaryGroup =
+{
+   GI_comp = @SameViewGroup,
+             @SameStatusLine;
+   HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+   HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+   HINT_CENTER_CHILDREN_HORIZONTALLY;
+   HINT_ORIENT_CHILDREN_VERTICALLY;
+@ifdef NOKIA
+   HINT_DRAW_IN_BOX;
+   HINT_DRAW_SHADOW;
+@endif
+}
+
+@object GenInteractionClass SameViewGroup =
+{
+   GI_comp = @SameView;
+   HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+   HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+   HINT_CENTER_CHILDREN_HORIZONTALLY;
+   HINT_CENTER_CHILDREN_VERTICALLY;
+}
+
+@object GenViewClass SameView = {
+   GVI_horizAttrs = @default | GVDA_NO_LARGER_THAN_CONTENT | GVDA_SCROLLABLE;
+   GVI_vertAttrs  = @default | GVDA_NO_LARGER_THAN_CONTENT | GVDA_SCROLLABLE;
+   GVI_content = process;
+   HINT_DEFAULT_FOCUS;
+   HINT_DEFAULT_TARGET;
+   HINT_VIEW_REMOVE_SCROLLERS_WHEN_NOT_SCROLLABLE;
+}
+
+@object GenInteractionClass SameStatusLine = {
+   GI_comp = @SameTimeGlyph,
+@ifdef NOKIA
+             @SameGameGlyph,
+@endif
+             @SameScoreGlyph;
+   HINT_ORIENT_CHILDREN_HORIZONTALLY;
+   HINT_CENTER_CHILDREN_VERTICALLY;
+   HINT_FULL_JUSTIFY_CHILDREN_HORIZONTALLY;
+   HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+}
+
+@object GenGlyphClass SameTimeGlyph = {
+   GI_visMoniker = " Time: 0:00 ";
+}
+
+@ifdef NOKIA
+  @object GenGlyphClass SameGameGlyph = {
+     GI_visMoniker = " Game No. 0 ";
+  }
+@endif
+
+@object GenGlyphClass SameScoreGlyph = {
+   GI_visMoniker = " Score: 0 ";
+}
+
+
+/***************************************************************************
+ *        Game Menu
+ ***************************************************************************/
+@object GenInteractionClass SameGameMenu = {
+   GI_visMoniker = 0, "Game";
+   GI_comp = @SameMenuTrigger;
+   GII_visibility = GIV_POPUP;
+   ATTR_GEN_INTERACTION_GROUP_TYPE = (GIGT_FILE_MENU);
+   HINT_SEEK_MENU_BAR;
+   HINT_SEEK_SLOT = 0;
+}
+
+@object GenInteractionClass SameMenuTrigger = {
+   GI_comp = @SameGameMenuGameGroup,
+             @SameGameMenuUndoGroup,
+             @SameGameMenuSameGroup;
+}
+
+@object GenInteractionClass SameGameMenuGameGroup = {
+   GI_comp = @SameGameMenuTriggerNew,
+             @SameGameMenuTriggerRestart,
+             @SameGameMenuTriggerCustom;
+}
+
+@object GenTriggerClass SameGameMenuTriggerNew = {
+   GI_visMoniker = 0, "New Game";
+   GTI_destination = process;
+   GTI_actionMsg = MSG_SAME_PROC_NEW_GAME;
+}
+
+@object GenTriggerClass SameGameMenuTriggerRestart = {
+   GI_visMoniker = 0, "Restart Game";
+   GTI_destination = process;
+   GTI_actionMsg = MSG_SAME_PROC_SAME_GAME;
+}
+
+@object GenTriggerClass SameGameMenuTriggerCustom = {
+   GI_visMoniker = 0, "Custom Game";
+   GTI_destination = @SameCustomStartDialog;
+   GTI_actionMsg = MSG_GEN_INTERACTION_INITIATE;
+}
+
+@object GenInteractionClass SameGameMenuUndoGroup = {
+   GI_comp = @SameGameMenuUndoTrigger,
+             @SameGameMenuRedoTrigger;
+}
+
+@object GenTriggerClass SameGameMenuUndoTrigger = {
+   GI_visMoniker = 0, "Undo";
+   GI_states = @default & ~GS_ENABLED;
+   GTI_destination = process;
+   GTI_actionMsg = MSG_SAME_PROC_UNDO;
+}
+
+@object GenTriggerClass SameGameMenuRedoTrigger = {
+   GI_visMoniker = 1, "Redo";
+   GI_states = @default & ~GS_USABLE;
+   GTI_destination = process;
+   GTI_actionMsg = MSG_SAME_PROC_REDO;
+}
+
+@object GenInteractionClass SameGameMenuSameGroup = {
+   GI_comp = @SameGameMenuSameScore,
+             @SameGameMenuTriggerAbout;
+}
+
+@object GenInteractionClass SameGameMenuSameScore = {
+   GI_states = @default & ~GS_USABLE;
+   GI_visMoniker = 0, "Show Same Scores";
+   GI_comp = @SameGameMenuSameScoreNameList,
+             @SameGameMenuSameScoreDateList,
+             @SameGameMenuSameScoreScoreList;
+   GII_visibility = GIV_DIALOG;
+   GII_type = GIT_NOTIFICATION;
+   HINT_ORIENT_CHILDREN_HORIZONTALLY;
+   HINT_INCLUDE_ENDS_IN_CHILD_SPACING;
+}
+
+@object GenInteractionClass SameGameMenuSameScoreNameList = {
+   GI_visMoniker = "Name";
+   HINT_ORIENT_CHILDREN_VERTICALLY;
+}
+
+@object GenInteractionClass SameGameMenuSameScoreDateList = {
+   GI_visMoniker = "Date";
+   HINT_ORIENT_CHILDREN_VERTICALLY;
+}
+
+@object GenInteractionClass SameGameMenuSameScoreScoreList = {
+   GI_visMoniker = "Score";
+   HINT_ORIENT_CHILDREN_VERTICALLY;
+}
+
+@object GenInteractionClass SameGameMenuTriggerAbout = {
+   GI_visMoniker =  0, "About Same";
+   GII_visibility = GIV_DIALOG;
+   GII_type = GIT_NOTIFICATION;
+   GI_comp = @SameGameMenuTriggerAboutGlyphText,
+             @SameGameMenuTriggerAboutGlyphBilder;
+   HINT_CENTER_CHILDREN_HORIZONTALLY;
+   HINT_ORIENT_CHILDREN_VERTICALLY;
+   HINT_NO_TALLER_THAN_CHILDREN_REQUIRE;
+}
+
+@object GenInteractionClass SameGameMenuTriggerAboutGlyphBilder = {
+   GI_comp = @SameGameMenuTriggerAboutGlyph1,
+             @SameGameMenuTriggerAboutGlyph2,
+             @SameGameMenuTriggerAboutGlyph3,
+             @SameGameMenuTriggerAboutGlyph4,
+             @SameGameMenuTriggerAboutGlyph5,
+             @SameGameMenuTriggerAboutGlyph6,
+             @SameGameMenuTriggerAboutGlyph7,
+             @SameGameMenuTriggerAboutGlyph8;
+   GI_visMoniker =  "LPT \'97 crew:";
+   GII_visibility = GIV_SUB_GROUP;
+   GII_type = GIT_ORGANIZATIONAL;
+   HINT_PLACE_MONIKER_ABOVE;
+   HINT_CENTER_MONIKER;
+   HINT_CENTER_CHILDREN_HORIZONTALLY;
+   HINT_ORIENT_CHILDREN_HORIZONTALLY;
+   HINT_WRAP_AFTER_CHILD_COUNT=4;
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyphText = {
+    GI_visMoniker = "Same Version 1.1 (Freeware)";
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph1 = {
+   GI_visMoniker = list{@DirkMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph2 = {
+   GI_visMoniker = list{@JensMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph3 = {
+   GI_visMoniker = list{@GerdMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph4 = {
+   GI_visMoniker = list{@JirkaMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph5 = {
+   GI_visMoniker = list{@JoergMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph6 = {
+   GI_visMoniker = list{@MarcusMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph7 = {
+   GI_visMoniker = list{@LysleMoniker};
+}
+
+@object GenGlyphClass SameGameMenuTriggerAboutGlyph8 = {
+   GI_visMoniker = list{@FalkMoniker};
+}
+
+
+/***************************************************************************
+ *        Options Menu
+ ***************************************************************************/
+@ifdef NOKIA
+ @object ComplexMonikerClass SameOptionsTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_OPTIONS;
+    GTI_actionMsg = MSG_GEN_INTERACTION_INITIATE;
+    GTI_destination = @SameOptionsDialog;
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_SLOT = 2;
+ }
+
+ @object GenInteractionClass SameOptionsDialog = {
+    GI_comp = @SameOptionsGroup;
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_PROPERTIES;
+    GII_attrs = @default | GIA_NOT_USER_INITIATABLE
+                         | GIA_MODAL;
+ }
+
+ @object ComplexMonikerClass SameOptionsGroup = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = CMT_OPTIONS;
+    CMI_iconBitmap = CMB_SETTINGS_TITLE_ICON;
+    GI_comp = @SameOptionsMenuTiles,
+              @SameOptionsMenuBoardSize;
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_PLACE_MONIKER_TO_LEFT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+ }
+@else
+ @object GenInteractionClass SameOptionsMenu = {
+   GII_visibility = GIV_POPUP;
+   GI_visMoniker = 0, "Options";
+   GI_comp = @SameOptionsMenuTiles,
+             @SameOptionsMenuBoardSize,
+             @SameOptionsMenuTileSize,
+             @SameOptionsMenuSave;
+   ATTR_GEN_INTERACTION_GROUP_TYPE = (GIGT_OPTIONS_MENU);
+ }
+@endif
+
+@object GenInteractionClass SameOptionsMenuTiles = {
+   GI_comp = @SameOptionsMenuTilesList;
+@ifdef NOKIA
+   GI_visMoniker = 0, "Type of Tiles: ";
+@else
+   GI_visMoniker = 0, "Type of Tiles";
+   GII_visibility = GIV_POPUP;
+@endif
+}
+
+@object GenItemGroupClass SameOptionsMenuTilesList = {
+   GIGI_behaviorType = GIGBT_EXCLUSIVE;
+   GIGI_selection = TF_1;
+   GIGI_numSelections = 1;
+   GI_comp = @SameOptionsMenuTilesItem1,
+             @SameOptionsMenuTilesItem2;
+   GIGI_destination = SameView;
+   GIGI_applyMsg = MSG_GEN_VIEW_REDRAW_CONTENT;
+   ATTR_GEN_INIT_FILE_KEY = "tileType";
+@ifdef NOKIA
+   HINT_INDENT_CHILDREN = { SST_PIXELS | 20 };
+@endif
+}
+
+@object GenItemClass SameOptionsMenuTilesItem1 = {
+   GI_visMoniker = 0, "Colors";
+   GII_identifier = TF_1;
+}
+
+@object GenItemClass SameOptionsMenuTilesItem2 = {
+   GI_visMoniker = 0, "Symbols";
+   GII_identifier = TF_2;
+}
+
+
+@object GenInteractionClass SameOptionsMenuBoardSize = {
+   GI_comp = @SameOptionsMenuBoardSizeList;
+@ifdef NOKIA
+   GI_visMoniker = 8, "Size of Board: ";
+@else
+   GI_visMoniker = 8, "Size of Board";
+   GII_visibility = GIV_POPUP;
+@endif
+}
+
+@object GenItemGroupClass SameOptionsMenuBoardSizeList = {
+   GIGI_behaviorType = GIGBT_EXCLUSIVE;
+   GIGI_selection = BSF_1;
+   GIGI_numSelections = 1;
+   GI_comp = @SameOptionsMenuBoardSizeItem1,
+             @SameOptionsMenuBoardSizeItem2,
+             @SameOptionsMenuBoardSizeItem3;
+   GIGI_destination = process;
+   GIGI_applyMsg = MSG_SAME_PROC_NEW_GAME;
+   ATTR_GEN_INIT_FILE_KEY = "boardSize";
+@ifdef NOKIA
+   HINT_INDENT_CHILDREN = { SST_PIXELS | 20 };
+@endif
+}
+
+@object GenItemClass SameOptionsMenuBoardSizeItem1 = {
+   GI_visMoniker = 0, "Small";
+   GII_identifier = BSF_1;
+}
+
+@object GenItemClass SameOptionsMenuBoardSizeItem2 = {
+   GI_visMoniker = 0, "Normal";
+   GII_identifier = BSF_2;
+}
+
+@object GenItemClass SameOptionsMenuBoardSizeItem3 = {
+   GI_visMoniker = 0, "Large";
+   GII_identifier = BSF_3;
+}
+
+
+@ifndef NOKIA
+@object GenInteractionClass SameOptionsMenuTileSize = {
+   GI_visMoniker = 2, "Size of Tiles";
+   GI_comp = @SameOptionsMenuTileSizeList;
+   GII_visibility = GIV_POPUP;
+    GII_type = GIT_PROPERTIES;
+}
+
+@object GenItemGroupClass SameOptionsMenuTileSizeList = {
+   GIGI_behaviorType = GIGBT_EXCLUSIVE;
+   GIGI_selection = TSF_1;
+   GIGI_numSelections = 1;
+   GI_comp = @SameOptionsMenuTileSizeItem1,
+             @SameOptionsMenuTileSizeItem2,
+             @SameOptionsMenuTileSizeItem3;
+   GIGI_destination = process;
+   GIGI_applyMsg = MSG_SAME_PROC_NEW_GAME;
+   ATTR_GEN_INIT_FILE_KEY = "tileSize";
+}
+
+@object GenItemClass SameOptionsMenuTileSizeItem1 = {
+   GI_visMoniker = 0, "Small";
+   GII_identifier = TSF_1;
+}
+
+@object GenItemClass SameOptionsMenuTileSizeItem2 = {
+   GI_visMoniker = 0, "Normal";
+   GII_identifier = TSF_2;
+}
+
+@object GenItemClass SameOptionsMenuTileSizeItem3 = {
+   GI_visMoniker = 0, "Large";
+   GII_identifier = TSF_3;
+}
+
+@object GenInteractionClass SameOptionsMenuSave = {
+   GI_comp = @SameOptionsMenuSaveTrigger;
+}
+
+@object GenTriggerClass SameOptionsMenuSaveTrigger = {
+   GI_visMoniker = 0, "Save Options";
+   GTI_destination = SameApp;
+   GTI_actionMsg = MSG_META_SAVE_OPTIONS;
+}
+@endif
+
+@ifdef NOKIA
+  @object ComplexMonikerClass SameCloseTrigger = {
+    ComplexMoniker = GenTriggerClass;
+    CMI_topText = CMT_CLOSE;
+    GTI_actionMsg = MSG_FSA_RETURN_TO_LAUNCHER;
+    GTI_destination = @SameApp;
+
+    HINT_SEEK_MENU_BAR;
+    HINT_SEEK_SLOT = 3;
+  }
+@endif
+
+@end InterfaceResource;
+

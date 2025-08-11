@@ -1,0 +1,154 @@
+/*
+ *  project:    same
+ *
+ *  file:       ui/dialog.goh
+ *
+ */
+
+@start GameEndResource;
+
+@object GenInteractionClass SameGameWinDialog = {
+    GI_comp = @SameGameWinGlyph1,
+              @SameGameWinTrigger;
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_ORGANIZATIONAL;
+    GII_attrs = @default | GIA_MODAL | GIA_NOT_USER_INITIATABLE;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+@ifdef NOKIA
+    HINT_CENTER_CHILDREN_VERTICALLY;
+@else
+    HINT_ORIENT_CHILDREN_VERTICALLY;
+@endif
+}
+
+@object GenGlyphClass SameGameWinGlyph1 = {
+    GI_visMoniker = "Congratulations! You made it!";
+}
+
+@object GenTriggerClass SameGameWinTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    HINT_DEFAULT_DEFAULT_ACTION;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = { IC_OK };
+    HINT_SEEK_REPLY_BAR;
+@ifdef NOKIA
+    HINT_SEEK_SLOT = 3;
+@endif
+}
+
+
+@object GenInteractionClass SameGameEndDialog = {
+    GI_comp = @SameGameEndGlyph1,
+              @SameGameEndSameGameTrigger,
+              @SameGameEndNewGameTrigger,
+              @SameGameEndTrigger;
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_ORGANIZATIONAL;
+    GII_attrs = @default | GIA_MODAL | GIA_NOT_USER_INITIATABLE;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+@ifdef NOKIA
+    HINT_CENTER_CHILDREN_VERTICALLY;
+@else
+    HINT_ORIENT_CHILDREN_VERTICALLY;
+@endif
+}
+
+@object GenGlyphClass SameGameEndGlyph1 = {
+    GI_visMoniker = "No more moves.  Please try again.";
+}
+
+@object GenTriggerClass SameGameEndNewGameTrigger = {
+    GI_visMoniker = 0, "New Game";
+    GTI_destination = process;
+    GTI_actionMsg = MSG_SAME_PROC_NEW_GAME;
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    HINT_SEEK_REPLY_BAR;
+@ifdef NOKIA
+    HINT_SEEK_SLOT = 0;
+@endif
+}
+
+@object GenTriggerClass SameGameEndSameGameTrigger = {
+    GI_visMoniker = 0, "Replay";
+    GTI_destination = process;
+    GTI_actionMsg = MSG_SAME_PROC_SAME_GAME;
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    HINT_SEEK_REPLY_BAR;
+@ifdef NOKIA
+    HINT_SEEK_SLOT = 1;
+@endif
+}
+
+@object GenTriggerClass SameGameEndTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    HINT_DEFAULT_DEFAULT_ACTION;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = { IC_OK };
+    HINT_SEEK_REPLY_BAR;
+@ifdef NOKIA
+    HINT_SEEK_SLOT = 3;
+@endif
+}
+
+@ifdef NOKIA
+  @object GenInteractionClass SameCustomStartDialog = {
+    GI_comp = @SameCustomStartGroup,
+              @SameCustomStartTrigger,
+              @SameCustomCloseTrigger;
+    GII_visibility = GIV_DIALOG;
+    GII_attrs = @default | GIA_NOT_USER_INITIATABLE;
+  }
+
+  @chunk TCHAR StartText[] = "Start Custom Game";
+  @object ComplexMonikerClass SameCustomStartGroup = {
+    ComplexMoniker = GenInteractionClass;
+    CMI_topText = @StartText;
+    GI_comp = @SameCustomStartValue;
+    ATTR_COMPLEX_MONIKER_PLACE_BITMAP_AT_LEFT;
+    HINT_DRAW_IN_BOX;
+    HINT_DRAW_SHADOW;
+    HINT_PLACE_MONIKER_ABOVE;
+    HINT_PLACE_MONIKER_TO_LEFT;
+    HINT_EXPAND_WIDTH_TO_FIT_PARENT;
+    HINT_EXPAND_HEIGHT_TO_FIT_PARENT;
+    HINT_COMPLEX_MONIKER_DRAW_SEPARATOR;
+    HINT_CENTER_CHILDREN_ON_MONIKERS;
+    HINT_INDENT_CHILDREN = 0;
+  }
+
+  @object GenTriggerClass SameCustomCloseTrigger = {
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    ATTR_GEN_TRIGGER_INTERACTION_COMMAND = { IC_DISMISS };
+    HINT_SEEK_REPLY_BAR;
+    HINT_SEEK_SLOT = 3;
+  }
+@else
+  @object GenInteractionClass SameCustomStartDialog = {
+    GI_visMoniker = "Start Custom Game";
+    GII_visibility = GIV_DIALOG;
+    GII_type = GIT_COMMAND;
+    GII_attrs = @default | GIA_NOT_USER_INITIATABLE;
+    GI_comp = @SameCustomStartTrigger,
+              @SameCustomStartValue;
+    HINT_CENTER_CHILDREN_HORIZONTALLY;
+    HINT_ORIENT_CHILDREN_VERTICALLY;
+}
+@endif
+
+@object GenTriggerClass SameCustomStartTrigger = {
+    GI_visMoniker = 0, "Start";
+    GTI_destination = process;
+    GTI_actionMsg = MSG_SAME_PROC_CUSTOM_GAME;
+    GI_attrs = @default | GA_SIGNAL_INTERACTION_COMPLETE;
+    HINT_SEEK_REPLY_BAR;
+@ifdef NOKIA
+    HINT_SEEK_SLOT = 0;
+@else
+    HINT_DEFAULT_DEFAULT_ACTION;
+@endif
+}
+
+@object GenValueClass SameCustomStartValue = {
+    GI_visMoniker = "Start Game # ";
+    HINT_PLACE_MONIKER_TO_LEFT;
+}
+
+@end GameEndResource;

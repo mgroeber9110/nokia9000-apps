@@ -1,0 +1,108 @@
+/*
+ *  project:   same
+ *
+ *  file:   same.goh
+ *
+ *  history:
+ */
+
+/*
+ *  Standard include files
+ */
+@include <stdapp.goh>
+@include <foam.goh>
+
+
+#undef GSSetClipRect
+#define GSSetClipRect(path, rl_sw, rt_sw, rr_sw, rb_sw)      \
+        GR_SET_CLIP_RECT, GOC_WORD( path ), GOC_SW( rl_sw ), \
+        GOC_SW( rt_sw ), GOC_SW( rr_sw ), GOC_SW( rb_sw )
+
+#undef GSSetWinClipRect
+#define GSSetWinClipRect(path,rl_sw,rt_sw,rr_sw,rb_sw)        \
+        GR_SET_WIN_CLIP_RECT, GOC_WORD(path) , GOC_SW(rl_sw), \
+        GOC_SW(rt_sw),GOC_SW(rr_sw),GOC_SW(rb_sw)
+
+
+/*
+ *  Strukturen/Variablen/Definitionen
+ */
+typedef WordFlags TilesFlags;
+    #define    TF_1 0x0001
+    #define    TF_2 0x0002
+
+typedef WordFlags BoardSizeFlags;
+    #define    BSF_1 0x0001
+    #define    BSF_2 0x0002
+    #define    BSF_3 0x0003
+
+typedef WordFlags TileSizeFlags;
+    #define    TSF_1 0x0001
+    #define    TSF_2 0x0002
+    #define    TSF_3 0x0003
+
+/*
+ *  SameProcessClass
+ */
+@class SameProcessClass, GenProcessClass;
+
+    @message void MSG_SAME_PROC_NEW_BOARD(long seed);
+    @message void MSG_SAME_PROC_GAME_OVER(word got);
+    @message void MSG_SAME_PROC_UPDATE_SCORE(word tiles);
+    @message void MSG_SAME_PROC_NEW_GAME();
+    @message void MSG_SAME_PROC_SAME_GAME();
+    @message void MSG_SAME_PROC_CUSTOM_GAME();
+    @message void MSG_SAME_PROC_TIMER();
+    @message void MSG_SAME_PROC_REDO();
+    @message void MSG_SAME_PROC_UNDO();
+    @message void MSG_SAME_PROC_CLICK_AT(word x, word y);
+
+@endc;
+
+/*
+ *  externe Files
+ */
+
+/*
+ *  process/main.goc
+ */
+@ifndef __SAME_PROCESS_PROCESS_GOC
+@define __SAME_PROCESS_PROCESS_GOC
+
+@endif
+
+/*
+ *  ui/main.goc
+ */
+@ifndef __SAME_UI_MAIN_GOC
+@define __SAME_UI_MAIN_GOC
+
+    @extern object @SameApp;
+    @extern object @SamePrimary;
+    @extern object @SameView;
+    @extern object @SameScoreGlyph;
+    @extern object @SameGameGlyph;
+    @extern object @SameTimeGlyph;
+    @extern object @SameGameMenuUndoTrigger;
+    @extern object @SameGameMenuRedoTrigger;
+    @extern object @SameGameMenuSameScoreNameList;
+    @extern object @SameGameMenuSameScoreDateList;
+    @extern object @SameGameMenuSameScoreScoreList;
+    @extern object @SameOptionsMenuTilesList;
+    @extern object @SameOptionsMenuBoardSizeList;
+    @extern object @SameOptionsMenuTileSizeList;
+
+@endif
+
+/*
+ *  ui/dialog.goc
+ */
+@ifndef __SAME_UI_DIALOG_GOC
+@define __SAME_UI_DIALOG_GOC
+
+    @extern object @SameGameWinDialog;
+    @extern object @SameGameEndDialog;
+    @extern object @SameCustomStartDialog;
+    @extern object @SameCustomStartValue;
+
+@endif

@@ -1,0 +1,12 @@
+/*
+ *  project:  same
+ *
+ *  file:     stings.goh
+ *
+ */
+
+@include <stdapp.goh>
+
+#define SCORE_STRING    " Score: %5u "
+#define TIME_STRING     " Time: %u:%02u "
+#define NUMBER_STRING   " Game No. %u "
